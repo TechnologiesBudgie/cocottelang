@@ -1,0 +1,23 @@
+name: Mirror to Codeberg
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          tags: true
+
+      - name: Mirror Repository Action
+        uses: cssnr/mirror-repository-action@v1.2.0
+        with:
+          url: https://codeberg.org/TechnologiesBudgie/logdock.git
+          username: Infomanraf
+          password: ${{ secrets.COBARGD }}
+          private: true
