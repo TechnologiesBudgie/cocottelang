@@ -32,7 +32,7 @@ use crate::charlotfile::{parse_charlotfile, exec_task, list_tasks};
 #[command(
     name = "cocotte",
     version = env!("CARGO_PKG_VERSION"),
-    about = "🐦 The Cocotte programming language — beginner-friendly, AI-ready",
+    about = "🐦 The Cocotte programming language — beginner-friendly, really.",
     long_about = "Cocotte is an English-like programming language with both interpreted and compiled modes.\nUse `cocotte run` for instant execution, `cocotte build` for optimized native binaries.",
 )]
 struct Cli {
