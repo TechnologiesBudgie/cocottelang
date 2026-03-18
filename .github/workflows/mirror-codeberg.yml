@@ -17,7 +17,7 @@ jobs:
       - name: Mirror Repository Action
         uses: cssnr/mirror-repository-action@v1.2.0
         with:
-          url: https://codeberg.org/TechnologiesBudgie/logdock.git
+          url: https://codeberg.org/TechnologiesBudgie/cocottelang.git
           username: Infomanraf
           password: ${{ secrets.COBARGD }}
           private: true
