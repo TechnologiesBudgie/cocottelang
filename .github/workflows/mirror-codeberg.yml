@@ -19,5 +19,5 @@ jobs:
         with:
           url: https://codeberg.org/TechnologiesBudgie/cocottelang.git
           username: Infomanraf
-          password: ${{ secrets.COBARGD }}
+          password: ${{ secrets.COBWEB }}
           private: true
