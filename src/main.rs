@@ -25,7 +25,7 @@ use std::fs;
 
 use crate::error::{CocotteError, Result};
 use crate::interpreter::Interpreter;
-use crate::codegen::{BuildOptions, TargetOS, init_project, build_project};
+use crate::codegen::{BuildOptions, TargetOS, TargetArch, init_project, build_project};
 use crate::charlotfile::{parse_charlotfile, exec_task, list_tasks};
 
 // ── CLI definition ────────────────────────────────────────────────────────────
@@ -74,6 +74,10 @@ enum Commands {
         /// Target OS: windows, linux, macos, bsd (default: current)
         #[arg(long, value_name = "OS", num_args = 1..)]
         os: Vec<String>,
+
+        /// Target architecture: x86_64, aarch64, armv7, i686, riscv64 (default: current)
+        #[arg(long, value_name = "ARCH", num_args = 1..)]
+        arch: Vec<String>,
 
         /// Optimized release build
         #[arg(long)]
@@ -154,8 +158,8 @@ fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Init { name }                                  => cmd_init(&name),
         Commands::Run { file, debug, bytecode }                  => cmd_run(&file, debug, bytecode),
-        Commands::Build { file, os, release, symbols, verbose, out } =>
-            cmd_build(&file, &os, release, symbols, verbose, &out),
+        Commands::Build { file, os, arch, release, symbols, verbose, out } =>
+            cmd_build(&file, &os, &arch, release, symbols, verbose, &out),
         Commands::Add { target }                                 => cmd_add(&target),
         Commands::Test { dir, verbose }                          => cmd_test(&dir, verbose),
         Commands::Clean                                          => cmd_clean(),
@@ -221,27 +225,51 @@ fn cmd_run(file: &Path, debug: bool, use_vm: bool) -> Result<()> {
 }
 
 fn cmd_build(
-    file: &Path,
+    file:       &Path,
     os_targets: &[String],
-    release: bool,
-    symbols: bool,
-    verbose: bool,
-    out_dir: &Path,
+    arch_args:  &[String],
+    release:    bool,
+    symbols:    bool,
+    verbose:    bool,
+    out_dir:    &Path,
 ) -> Result<()> {
     let project_name = detect_project_name(file);
 
-    let targets: Vec<TargetOS> = if os_targets.is_empty() {
+    // Parse OS list
+    let os_list: Vec<TargetOS> = if os_targets.is_empty() {
         vec![TargetOS::Current]
     } else {
         let mut ts = Vec::new();
         for s in os_targets {
             match TargetOS::from_str(s) {
                 Some(t) => ts.push(t),
-                None    => eprintln!("warning: unknown OS target '{}' (use: windows linux macos bsd)", s),
+                None    => eprintln!("warning: unknown OS '{}' (valid: windows linux macos bsd)", s),
             }
         }
         if ts.is_empty() { vec![TargetOS::Current] } else { ts }
     };
+
+    // Parse arch list
+    let arch_list: Vec<TargetArch> = if arch_args.is_empty() {
+        vec![TargetArch::Current]
+    } else {
+        let mut ts = Vec::new();
+        for s in arch_args {
+            match TargetArch::from_str(s) {
+                Some(a) => ts.push(a),
+                None    => eprintln!("warning: unknown arch '{}' (valid: x86_64 aarch64 armv7 i686 riscv64)", s),
+            }
+        }
+        if ts.is_empty() { vec![TargetArch::Current] } else { ts }
+    };
+
+    // Build the cartesian product of OS × arch targets
+    let mut targets = Vec::new();
+    for os in &os_list {
+        for arch in &arch_list {
+            targets.push((os.clone(), arch.clone()));
+        }
+    }
 
     let mut opts = BuildOptions::new(&project_name, file.to_path_buf());
     opts.targets       = targets;

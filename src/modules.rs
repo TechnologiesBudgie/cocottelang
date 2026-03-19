@@ -74,8 +74,6 @@ fn make_charlotte_module() -> Value {
     { return crate::charlotte::make_charlotte_module(); }
     #[cfg(not(feature = "gui"))]
     {
-        use std::collections::HashMap;
-        use std::sync::{Arc, Mutex};
         let mut m: HashMap<String, Value> = HashMap::new();
         m.insert("window".to_string(), Value::NativeFunction(NativeFunction {
             name: "charlotte.window".to_string(),

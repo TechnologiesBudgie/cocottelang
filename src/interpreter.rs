@@ -40,20 +40,7 @@ impl Interpreter {
         self.env.full_snapshot()
     }
 
-    /// Collect only user-defined functions from the top-level scope
-    pub fn global_functions(&self) -> HashMap<String, Value> {
-        let mut map = HashMap::new();
-        // Walk to the root env (no parent = global scope)
-        let top = self.env.top_scope();
-        for (k, v) in top {
-            if matches!(v, Value::Function(_)) {
-                map.insert(k, v);
-            }
-        }
-        map
-    }
-
-    /// Public wrapper for call_function (used by charlotte module)
+/// Public wrapper for call_function (used by charlotte module)
     #[cfg(feature = "gui")]
     pub fn call_function_pub(
         &mut self,

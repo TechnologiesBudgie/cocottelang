@@ -131,14 +131,6 @@ impl Environment {
         map
     }
 
-    /// Walk to root scope and return everything
-    pub fn top_scope(&self) -> HashMap<String, Value> {
-        if let Some(ref parent) = self.parent {
-            return parent.top_scope();
-        }
-        self.vars.clone()
-    }
-
     /// True if this scope directly contains the key (not parent)
     pub fn has_local(&self, name: &str) -> bool {
         self.vars.contains_key(name)
