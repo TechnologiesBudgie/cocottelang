@@ -33,14 +33,12 @@ pub enum Stmt {
     VarDecl {
         name: String,
         value: Expr,
-        #[allow(dead_code)]
         span: Span,
     },
     /// Assignment: x = expr  OR  obj.field = expr  OR  arr[idx] = expr
     Assign {
         target: AssignTarget,
         value: Expr,
-        #[allow(dead_code)]
         span: Span,
     },
     /// func name(params) ... end
@@ -48,20 +46,17 @@ pub enum Stmt {
         name: String,
         params: Vec<String>,
         body: Vec<Stmt>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// class Name ... end
     ClassDecl {
         name: String,
         methods: Vec<Stmt>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// return expr
     Return {
         value: Option<Expr>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// if cond ... elif ... else ... end
@@ -70,14 +65,12 @@ pub enum Stmt {
         then_branch: Vec<Stmt>,
         elif_branches: Vec<(Expr, Vec<Stmt>)>,
         else_branch: Option<Vec<Stmt>>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// while cond ... end
     While {
         condition: Expr,
         body: Vec<Stmt>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// for item in iterable ... end
@@ -85,44 +78,37 @@ pub enum Stmt {
         var: String,
         iterable: Expr,
         body: Vec<Stmt>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// try ... catch ErrType ... end
     Try {
         body: Vec<Stmt>,
         catch_var: Option<String>,
-        #[allow(dead_code)]
         catch_type: Option<String>,
         catch_body: Vec<Stmt>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// print expr
     Print {
         value: Expr,
-        #[allow(dead_code)]
         span: Span,
     },
     /// module add "name"
     ModuleAdd {
         name: String,
-        #[allow(dead_code)]
         span: Span,
     },
     /// library add "path"
     LibraryAdd {
         path: String,
-        #[allow(dead_code)]
         span: Span,
     },
     /// break / continue
-    Break { #[allow(dead_code)] span: Span },
-    Continue { #[allow(dead_code)] span: Span },
+    Break { span: Span },
+    Continue { span: Span },
     /// Standalone expression statement (e.g. function call)
     ExprStmt {
         expr: Expr,
-        #[allow(dead_code)]
         span: Span,
     },
 }
@@ -154,21 +140,18 @@ pub enum Expr {
         op: BinOp,
         left: Box<Expr>,
         right: Box<Expr>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// Unary operation: not x, -x
     UnaryOp {
         op: UnaryOp,
         operand: Box<Expr>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// Function call: callee(args)
     Call {
         callee: Box<Expr>,
         args: Vec<Expr>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// Method call: obj.method(args)
@@ -176,32 +159,28 @@ pub enum Expr {
         object: Box<Expr>,
         method: String,
         args: Vec<Expr>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// Field access: obj.field
     FieldAccess {
         object: Box<Expr>,
         field: String,
-        #[allow(dead_code)]
         span: Span,
     },
     /// Index access: arr[idx]
     Index {
         object: Box<Expr>,
         index: Box<Expr>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// Anonymous function: func(params) ... end
     Lambda {
         params: Vec<String>,
         body: Vec<Stmt>,
-        #[allow(dead_code)]
         span: Span,
     },
     /// self reference inside a class method
-    SelfRef(#[allow(dead_code)] Span),
+    SelfRef(Span),
 }
 
 /// Binary operators

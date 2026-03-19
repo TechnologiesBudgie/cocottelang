@@ -30,6 +30,14 @@ impl Parser {
         &self.tokens[self.tokens.len() - 1]
     }
 
+    fn peek_raw(&self) -> &Token {
+        if self.pos < self.tokens.len() {
+            &self.tokens[self.pos]
+        } else {
+            &self.tokens[self.tokens.len() - 1]
+        }
+    }
+
     fn advance(&mut self) -> &Token {
         // Skip newlines silently (statement-level separation is handled by the grammar)
         while self.pos < self.tokens.len() && self.tokens[self.pos].kind == TokenKind::Newline {
@@ -46,6 +54,10 @@ impl Parser {
         while self.pos < self.tokens.len() && self.tokens[self.pos].kind == TokenKind::Newline {
             self.pos += 1;
         }
+    }
+
+    fn check(&self, kind: &TokenKind) -> bool {
+        std::mem::discriminant(&self.peek().kind) == std::mem::discriminant(kind)
     }
 
     fn check_exact(&self, kind: &TokenKind) -> bool {

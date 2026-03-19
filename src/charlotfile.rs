@@ -17,7 +17,7 @@ pub struct Charlotfile {
     pub tasks: HashMap<String, Vec<TaskStep>>,
 }
 
-/// A single step in a task (can be a shell command or a sub-task dependency)
+/// A single step in a task
 #[derive(Debug, Clone)]
 pub enum TaskStep {
     /// Shell command to execute
@@ -72,7 +72,7 @@ fn parse_content(content: &str) -> Result<Charlotfile> {
             Some("project") => {
                 if let Some((k, v)) = split_kv(trimmed) {
                     match k.trim() {
-                        "name" => project_name = unquote(v.trim()),
+                        "name"   => project_name = unquote(v.trim()),
                         "author" => author = unquote(v.trim()),
                         _ => {}
                     }
@@ -86,7 +86,6 @@ fn parse_content(content: &str) -> Result<Charlotfile> {
             Some("task") => {
                 if let Some(ref task_name) = current_task.clone() {
                     let steps = tasks.entry(task_name.clone()).or_insert_with(Vec::new);
-                    // Expand variables in command
                     let cmd = expand_vars(trimmed, &variables);
                     if let Some(dep) = cmd.strip_prefix("task:") {
                         steps.push(TaskStep::Dep(dep.trim().to_string()));
@@ -96,7 +95,6 @@ fn parse_content(content: &str) -> Result<Charlotfile> {
                 }
             }
             _ => {
-                // Lines not in a section default to task commands if we have a current task
                 if let Some(ref task_name) = current_task.clone() {
                     let cmd = expand_vars(trimmed, &variables);
                     tasks.entry(task_name.clone())
@@ -144,9 +142,9 @@ pub fn exec_task(charlotfile: &Charlotfile, task_name: &str, verbose: bool) -> R
         ))
     })?;
 
-    println!("{} {} {}", "▶".green().bold(), "Running task:".bold(), task_name.cyan().bold());
+    println!("{} {}", "Running task:".bold(), task_name.cyan().bold());
     if !charlotfile.author.is_empty() {
-        println!("  {} {}", "Project:".dimmed(), charlotfile.project_name.dimmed());
+        println!("  Project: {}", charlotfile.project_name.dimmed());
     }
     println!();
 
@@ -154,7 +152,7 @@ pub fn exec_task(charlotfile: &Charlotfile, task_name: &str, verbose: bool) -> R
     for step in &steps {
         match step {
             TaskStep::Dep(dep_name) => {
-                println!("  {} {}", "→ Dependency:".yellow(), dep_name);
+                println!("  [dep] {}", dep_name);
                 exec_task(charlotfile, dep_name, verbose)?;
             }
             TaskStep::Command(cmd) => {
@@ -163,19 +161,19 @@ pub fn exec_task(charlotfile: &Charlotfile, task_name: &str, verbose: bool) -> R
         }
     }
 
-    println!("{} Task '{}' completed successfully\n", "✓".green().bold(), task_name.green());
+    println!("{} Task '{}' completed\n", "ok:".green().bold(), task_name.green());
     Ok(())
 }
 
 /// Execute a single shell command (handles `cd path && cmd` patterns)
 fn run_command(cmd: &str, verbose: bool) -> Result<()> {
-    println!("  {} {}", "$".cyan(), cmd.white());
+    println!("  $ {}", cmd.white());
 
     // Handle `cd dir && rest` pattern
     if let Some((cd_part, rest)) = parse_cd_and(cmd) {
         let dir = cd_part.trim();
         if verbose {
-            println!("    (changing to directory: {})", dir);
+            println!("    (cd {})", dir);
         }
         let status = if cfg!(target_os = "windows") {
             Command::new("cmd")
@@ -211,15 +209,11 @@ fn parse_cd_and(cmd: &str) -> Option<(&str, &str)> {
     None
 }
 
-fn check_status(
-    status: std::io::Result<std::process::ExitStatus>,
-    cmd: &str,
-) -> Result<()> {
+fn check_status(status: std::io::Result<std::process::ExitStatus>, cmd: &str) -> Result<()> {
     match status {
         Ok(s) if s.success() => Ok(()),
         Ok(s) => Err(CocotteError::build_err(&format!(
-            "Command failed with code {}: {}",
-            s.code().unwrap_or(-1), cmd
+            "Command failed with code {}: {}", s.code().unwrap_or(-1), cmd
         ))),
         Err(e) => Err(CocotteError::io_err(&format!(
             "Failed to execute '{}': {}", cmd, e
@@ -229,16 +223,16 @@ fn check_status(
 
 /// List all tasks in a Charlotfile
 pub fn list_tasks(charlotfile: &Charlotfile) {
-    println!("{}", "📋 Available tasks:".bold());
+    println!("{}", "Available tasks:".bold());
     let mut names: Vec<&String> = charlotfile.tasks.keys().collect();
     names.sort();
     for name in names {
         let steps = &charlotfile.tasks[name];
-        println!("  {} {}", "▸".cyan(), name.white().bold());
+        println!("  {}", name.white().bold());
         for step in steps {
             match step {
                 TaskStep::Command(cmd) => println!("      $ {}", cmd.dimmed()),
-                TaskStep::Dep(dep) => println!("      → (task) {}", dep.dimmed()),
+                TaskStep::Dep(dep)     => println!("      -> (task) {}", dep.dimmed()),
             }
         }
     }
