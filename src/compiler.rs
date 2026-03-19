@@ -4,7 +4,7 @@
 
 use crate::ast::*;
 use crate::bytecode::{Chunk, Instruction};
-use crate::error::{CocotteError, Result};
+use crate::error::Result;
 
 pub struct Compiler {
     chunk: Chunk,
