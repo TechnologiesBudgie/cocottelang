@@ -19,3 +19,71 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+
+
+# Cocotte — .gitignore template
+# https://github.com/TechnologiesBudgie/cocottelang
+
+# ── Build output ──────────────────────────────────────────────────────────────
+
+# Compiled binaries and cross-compilation output
+/dist/
+
+# Intermediate build artifacts
+/build/
+
+# Source bundles emitted when cross toolchain is missing
+*_src/
+
+# Bytecode cache
+*.cotcache
+
+# ── Modules and libraries ─────────────────────────────────────────────────────
+
+# Downloaded modules (installed via `cocotte add <module>`)
+/modules/*.cotmod
+
+# Local libraries copied from external paths (keep hand-authored ones)
+# Uncomment if you version-control no .cotlib files at all:
+# /libraries/
+
+# ── Runtime and debug ─────────────────────────────────────────────────────────
+
+# Debug output files
+*.cotdebug
+
+# REPL history
+.cocotte_history
+
+# ── Packages ──────────────────────────────────────────────────────────────────
+
+# Archives created by `cocotte package`
+*.zip
+*.tar
+*.tar.gz
+
+# ── Editor and OS ─────────────────────────────────────────────────────────────
+
+# JetBrains IDEs
+.idea/
+*.iml
+
+# Visual Studio Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Linux
+*~
+.nfs*
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# ── Environment ───────────────────────────────────────────────────────────────
+
+.env
+.env.local
