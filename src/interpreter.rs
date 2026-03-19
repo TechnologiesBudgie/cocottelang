@@ -189,7 +189,7 @@ impl Interpreter {
                 Ok(Value::Nil)
             }
 
-            Stmt::ModuleAdd { name, span: _ } => {
+            Stmt::ModuleAdd { name, span } => {
                 let module = load_module(name, &self.project_root)
                     .map_err(|e| CocotteError::module_err(&e.message)
                         .with_hint(&format!(

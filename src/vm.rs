@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crate::bytecode::{Chunk, Instruction};
-use crate::error::{CocotteError, Result};
-use crate::value::{Value, CocotteFunction, CocotteClass, ClassInstance};
+use crate::error::{CocotteError, Result, Signal};
+use crate::value::{Value, CocotteFunction, CocotteClass, ClassInstance, NativeFunction};
 use crate::builtins::register_builtins;
 use crate::modules::{load_module, load_library};
 
@@ -19,6 +19,25 @@ struct Frame {
 impl Frame {
     fn new(instructions: Vec<Instruction>) -> Self {
         Frame { instructions, ip: 0, locals: HashMap::new() }
+    }
+}
+
+/// Iterator wrapper for `for` loops
+#[derive(Clone, Debug)]
+struct CocotteIter {
+    items: Vec<Value>,
+    pos: usize,
+}
+
+impl CocotteIter {
+    fn next_item(&mut self) -> Option<Value> {
+        if self.pos < self.items.len() {
+            let item = self.items[self.pos].clone();
+            self.pos += 1;
+            Some(item)
+        } else {
+            None
+        }
     }
 }
 
@@ -97,6 +116,12 @@ impl VM {
                 }
 
                 Instruction::Pop => { self.stack.pop(); }
+
+                Instruction::Dup => {
+                    let top = self.stack.last().cloned()
+                        .ok_or_else(|| CocotteError::runtime("Stack underflow on Dup"))?;
+                    self.stack.push(top);
+                }
 
                 Instruction::Add => {
                     let (l, r) = self.pop2()?;
@@ -505,6 +530,11 @@ impl VM {
             }
 
             Instruction::Pop => { self.stack.pop(); }
+            Instruction::Dup => {
+                let top = self.stack.last().cloned()
+                    .ok_or_else(|| CocotteError::runtime("Stack underflow on Dup"))?;
+                self.stack.push(top);
+            }
 
             Instruction::Add => {
                 let (l, r) = self.pop2()?;

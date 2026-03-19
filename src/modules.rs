@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use crate::value::{Value, NativeFunction};
+use crate::value::{Value, NativeFunction, CocotteClass, CocotteFunction};
 use crate::error::{CocotteError, Result};
 
 /// Load a built-in or file-based module by name

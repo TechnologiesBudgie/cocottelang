@@ -121,6 +121,10 @@ impl Lexer {
         self.source.get(self.pos).copied()
     }
 
+    fn peek2(&self) -> Option<char> {
+        self.source.get(self.pos + 1).copied()
+    }
+
     fn advance(&mut self) -> Option<char> {
         let ch = self.source.get(self.pos).copied();
         if let Some(c) = ch {
