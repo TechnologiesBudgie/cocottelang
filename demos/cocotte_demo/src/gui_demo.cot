@@ -1,0 +1,297 @@
+# src/gui_demo.cot — Charlotte GUI demo
+# Run with: cocotte exec run-gui
+#
+# REQUIRES: build with GUI support first:
+#   1. In Cargo.toml, uncomment:
+#        eframe = "0.29"
+#        egui   = "0.29"
+#      and the [features] block
+#   2. cargo build --release --features gui
+#   3. Then: ./dist/CocotteDemo  (or cocotte run --features gui src/gui_demo.cot)
+#
+# Without GUI support, charlotte.window() prints a message and exits cleanly.
+
+module add "charlotte"
+module add "math"
+
+print "Starting GUI demo..."
+print "If you see this window start and immediately close, enable the gui feature."
+print "(See instructions at the top of this file.)"
+print ""
+
+# All state lives in maps — changes persist between frames (60fps draw loop)
+var app = {
+    "tab":          "counter",
+    "count":        0,
+    "step":         1,
+    "calc_a":       "",
+    "calc_b":       "",
+    "calc_result":  "",
+    "notes":        [],
+    "log":          []
+}
+
+func add_log(msg)
+    var logs = app.get("log")
+    logs.push(msg)
+    if logs.len() > 20
+        app.set("log", logs.slice(logs.len() - 20, logs.len()))
+    end
+end
+
+add_log("App started")
+
+charlotte.window("Cocotte Demo App", 700, 500, func(ui)
+
+    # ── Tab bar ───────────────────────────────────────────────────────────────
+    ui.row(func()
+        var tabs = ["counter", "calculator", "notes", "widgets", "log"]
+        for tab in tabs
+            if ui.button(tab)
+                app.set("tab", tab)
+                add_log("Switched to " + tab)
+            end
+        end
+    end)
+    ui.separator()
+
+    var current_tab = app.get("tab")
+
+    # ── Counter tab ───────────────────────────────────────────────────────────
+    if current_tab == "counter"
+        ui.heading("Counter")
+        ui.space()
+
+        var count = app.get("count")
+        var step  = app.get("step")
+
+        ui.label("Current value: " + count)
+        ui.space()
+
+        ui.row(func()
+            if ui.button("- " + step)
+                app.set("count", count - step)
+                add_log("Decremented to " + (count - step))
+            end
+            if ui.button("Reset")
+                app.set("count", 0)
+                add_log("Reset to 0")
+            end
+            if ui.button("+ " + step)
+                app.set("count", count + step)
+                add_log("Incremented to " + (count + step))
+            end
+        end)
+
+        ui.space()
+        var new_step = ui.slider("step_slider", "Step size", 1, 10, 1)
+        app.set("step", number_to_int(new_step))
+
+        ui.space()
+        var progress_val = divide count by 100
+        ui.progress(clamp(progress_val, 0, 1))
+        ui.label("Progress toward 100: " + clamp(count, 0, 100) + "%")
+    end
+
+    # ── Calculator tab ────────────────────────────────────────────────────────
+    if current_tab == "calculator"
+        ui.heading("Calculator")
+        ui.space()
+
+        var a_str = ui.input("calc_a", "First number...")
+        var b_str = ui.input("calc_b", "Second number...")
+        ui.space()
+
+        var result = app.get("calc_result")
+
+        ui.row(func()
+            var ops = ["+", "-", "*", "/", "%"]
+            for op in ops
+                if ui.button(op)
+                    try
+                        var a = to_number(a_str)
+                        var b = to_number(b_str)
+                        if op == "+"
+                            result = to_string(a + b)
+                        elif op == "-"
+                            result = to_string(a - b)
+                        elif op == "*"
+                            result = to_string(a * b)
+                        elif op == "/"
+                            var div_result = divide a by b
+                            result = format_number(div_result, 4)
+                        elif op == "%"
+                            result = to_string(a % b)
+                        end
+                        add_log(a_str + " " + op + " " + b_str + " = " + result)
+                    catch err
+                        result = "Error: " + err
+                    end
+                    app.set("calc_result", result)
+                end
+            end
+        end)
+
+        ui.space()
+        if result != ""
+            ui.heading("= " + result)
+        end
+
+        ui.space()
+        ui.collapsible("Math functions", func()
+            var val_str = ui.input("math_val", "Enter a number...")
+            ui.row(func()
+                var fns = ["sqrt", "floor", "ceil", "round", "abs"]
+                for fname in fns
+                    if ui.button(fname)
+                        try
+                            var v = to_number(val_str)
+                            var r = nil
+                            if fname == "sqrt"  then r = sqrt(v)  end
+                            if fname == "floor" then r = floor(v) end
+                            if fname == "ceil"  then r = ceil(v)  end
+                            if fname == "round" then r = round(v) end
+                            if fname == "abs"   then r = abs(v)   end
+                            add_log(fname + "(" + val_str + ") = " + r)
+                            app.set("calc_result", to_string(r))
+                        catch err
+                            app.set("calc_result", "Error")
+                        end
+                    end
+                end
+            end)
+        end)
+    end
+
+    # ── Notes tab ─────────────────────────────────────────────────────────────
+    if current_tab == "notes"
+        ui.heading("Notes")
+        ui.space()
+
+        ui.row(func()
+            var text = ui.input("note_input", "Write a note...")
+            if ui.button("Add")
+                var trimmed = text.trim()
+                if trimmed != ""
+                    app.get("notes").push({"text": trimmed, "done": false})
+                    add_log("Added note: " + trimmed)
+                end
+            end
+        end)
+
+        ui.separator()
+
+        var notes = app.get("notes")
+        if notes.is_empty()
+            ui.label("No notes yet. Add one above!")
+        end
+
+        var pending = notes.filter(func(n) return not n.get("done") end)
+        var done    = notes.filter(func(n) return n.get("done") end)
+
+        if pending.len() > 0
+            ui.label("Active (" + pending.len() + "):")
+            for note in pending
+                ui.row(func()
+                    if ui.small_button("Done")
+                        note.set("done", true)
+                        add_log("Completed: " + note.get("text"))
+                    end
+                    if ui.small_button("Del")
+                        var new_notes = notes.filter(func(n) return n.get("text") != note.get("text") end)
+                        app.set("notes", new_notes)
+                    end
+                    ui.label(note.get("text"))
+                end)
+            end
+        end
+
+        if done.len() > 0
+            ui.separator()
+            ui.collapsible("Completed (" + done.len() + ")", func()
+                for note in done
+                    ui.colored_label("gray", "  [x] " + note.get("text"))
+                end
+                if ui.small_button("Clear all completed")
+                    app.set("notes", pending)
+                    add_log("Cleared " + done.len() + " completed notes")
+                end
+            end)
+        end
+    end
+
+    # ── Widgets tab ───────────────────────────────────────────────────────────
+    if current_tab == "widgets"
+        ui.heading("Widget Showcase")
+
+        ui.group(func()
+            ui.label("Text input:")
+            var t = ui.input("widget_text", "Type something...")
+            if t != ""
+                ui.label("You typed: " + t)
+            end
+            var ml = ui.multiline_input("widget_ml", "Multi-line text area...")
+            ui.label("Lines: " + ml.split_lines().len())
+        end)
+
+        ui.space()
+
+        ui.group(func()
+            ui.label("Checkboxes:")
+            var a = ui.checkbox("chk_a", "Option A", false)
+            var b = ui.checkbox("chk_b", "Option B", true)
+            var c = ui.checkbox("chk_c", "Option C", false)
+            var selected = []
+            if a then selected.push("A") end
+            if b then selected.push("B") end
+            if c then selected.push("C") end
+            if selected.len() > 0
+                ui.label("Selected: " + selected.join(", "))
+            end
+        end)
+
+        ui.space()
+
+        ui.group(func()
+            ui.label("Sliders:")
+            var r = ui.slider("color_r", "Red",   0, 255, 128)
+            var g = ui.slider("color_g", "Green", 0, 255, 128)
+            var b = ui.slider("color_b", "Blue",  0, 255, 128)
+            var hex = "#" + number_to_int(r).to_string().pad_left(2,"0") + number_to_int(g).to_string().pad_left(2,"0") + number_to_int(b).to_string().pad_left(2,"0")
+            ui.colored_label(hex, "Color preview: " + hex)
+        end)
+
+        ui.space()
+
+        ui.group(func()
+            ui.label("Colors:")
+            var color_names = ["red", "green", "blue", "yellow", "orange", "purple", "cyan", "pink"]
+            ui.row(func()
+                for col in color_names
+                    ui.colored_label(col, col)
+                end
+            end)
+        end)
+    end
+
+    # ── Log tab ───────────────────────────────────────────────────────────────
+    if current_tab == "log"
+        ui.heading("Activity Log")
+        ui.space()
+        if ui.button("Clear log")
+            app.set("log", [])
+        end
+        ui.separator()
+        ui.scroll(func()
+            var logs = app.get("log")
+            var i = logs.len() - 1
+            while i >= 0
+                ui.monospace(logs.get(i))
+                i = i - 1
+            end
+        end)
+    end
+
+end)
+
+print "GUI closed."
