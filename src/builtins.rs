@@ -315,6 +315,112 @@ pub fn register_builtins(env: &mut HashMap<String, Value>) {
         }
     });
 
+    builtin!("append_file", Some(2), |args| {
+        match (&args[0], &args[1]) {
+            (Value::Str(path), Value::Str(content)) => {
+                use std::io::Write;
+                let mut f = std::fs::OpenOptions::new().append(true).create(true).open(path)
+                    .map_err(|e| CocotteError::io_err(&format!("Cannot open '{}': {}", path, e)))?;
+                f.write_all(content.as_bytes())
+                    .map(|_| Value::Nil)
+                    .map_err(|e| CocotteError::io_err(&format!("Cannot write '{}': {}", path, e)))
+            }
+            _ => Err(CocotteError::type_err("append_file() requires two strings")),
+        }
+    });
+
+    builtin!("delete_file", Some(1), |args| {
+        match &args[0] {
+            Value::Str(path) => {
+                let p = std::path::Path::new(path);
+                if p.is_dir() {
+                    std::fs::remove_dir_all(p)
+                } else {
+                    std::fs::remove_file(p)
+                }
+                .map(|_| Value::Nil)
+                .map_err(|e| CocotteError::io_err(&format!("Cannot delete '{}': {}", path, e)))
+            }
+            _ => Err(CocotteError::type_err("delete_file() requires a string path")),
+        }
+    });
+
+    builtin!("make_dir", Some(1), |args| {
+        match &args[0] {
+            Value::Str(path) => {
+                std::fs::create_dir_all(path)
+                    .map(|_| Value::Nil)
+                    .map_err(|e| CocotteError::io_err(&format!("Cannot create dir '{}': {}", path, e)))
+            }
+            _ => Err(CocotteError::type_err("make_dir() requires a string path")),
+        }
+    });
+
+    builtin!("list_dir", Some(1), |args| {
+        match &args[0] {
+            Value::Str(path) => {
+                let entries = std::fs::read_dir(path)
+                    .map_err(|e| CocotteError::io_err(&format!("Cannot read dir '{}': {}", path, e)))?;
+                let mut items = Vec::new();
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        items.push(Value::Str(name.to_string()));
+                    }
+                }
+                items.sort_by(|a, b| a.to_display().cmp(&b.to_display()));
+                Ok(Value::List(Arc::new(Mutex::new(items))))
+            }
+            _ => Err(CocotteError::type_err("list_dir() requires a string path")),
+        }
+    });
+
+    builtin!("rename_file", Some(2), |args| {
+        match (&args[0], &args[1]) {
+            (Value::Str(from), Value::Str(to)) => {
+                std::fs::rename(from, to)
+                    .map(|_| Value::Nil)
+                    .map_err(|e| CocotteError::io_err(&format!("Cannot rename '{}' to '{}': {}", from, to, e)))
+            }
+            _ => Err(CocotteError::type_err("rename_file() requires two strings")),
+        }
+    });
+
+    builtin!("copy_file", Some(2), |args| {
+        match (&args[0], &args[1]) {
+            (Value::Str(from), Value::Str(to)) => {
+                std::fs::copy(from, to)
+                    .map(|_| Value::Nil)
+                    .map_err(|e| CocotteError::io_err(&format!("Cannot copy '{}' to '{}': {}", from, to, e)))
+            }
+            _ => Err(CocotteError::type_err("copy_file() requires two strings")),
+        }
+    });
+
+    builtin!("is_dir", Some(1), |args| {
+        match &args[0] {
+            Value::Str(path) => Ok(Value::Bool(std::path::Path::new(path).is_dir())),
+            _ => Err(CocotteError::type_err("is_dir() requires a string path")),
+        }
+    });
+
+    builtin!("is_file", Some(1), |args| {
+        match &args[0] {
+            Value::Str(path) => Ok(Value::Bool(std::path::Path::new(path).is_file())),
+            _ => Err(CocotteError::type_err("is_file() requires a string path")),
+        }
+    });
+
+    builtin!("file_size", Some(1), |args| {
+        match &args[0] {
+            Value::Str(path) => {
+                std::fs::metadata(path)
+                    .map(|m| Value::Number(m.len() as f64))
+                    .map_err(|e| CocotteError::io_err(&format!("Cannot stat '{}': {}", path, e)))
+            }
+            _ => Err(CocotteError::type_err("file_size() requires a string path")),
+        }
+    });
+
     // ── System ───────────────────────────────────────────────────────────
 
     builtin!("exit", Some(1), |args| {

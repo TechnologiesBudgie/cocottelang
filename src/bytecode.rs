@@ -5,6 +5,7 @@ use crate::value::Value;
 
 /// A single bytecode instruction
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum Instruction {
     // Stack management
     LoadConst(Value),      // Push a constant onto the stack
@@ -89,10 +90,12 @@ pub enum Instruction {
 
 /// A compiled bytecode chunk (a function or top-level program)
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Chunk {
     pub name: String,
     pub instructions: Vec<Instruction>,
     /// Constant pool (indexed by LoadConst)
+    #[allow(dead_code)]
     pub constants: Vec<Value>,
 }
 

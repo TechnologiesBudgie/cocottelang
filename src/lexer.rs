@@ -93,6 +93,7 @@ pub struct Lexer {
     col: usize,
 }
 
+#[allow(dead_code)]
 impl Lexer {
     pub fn new(source: &str) -> Self {
         Lexer {
@@ -121,9 +122,6 @@ impl Lexer {
         self.source.get(self.pos).copied()
     }
 
-    fn peek2(&self) -> Option<char> {
-        self.source.get(self.pos + 1).copied()
-    }
 
     fn advance(&mut self) -> Option<char> {
         let ch = self.source.get(self.pos).copied();
