@@ -1,8 +1,31 @@
 # Cocotte
 
-Cocotte is a beginner-friendly, powerful programming language designed to be as easy as possible, while still being as powerful as Rust or Python.
+Cocotte is a beginner-friendly, powerful programming language designed to be as easy as English while as powerful as Rust.
 
 ## Install
 
 ```bash
 curl -fsSL https://cocotte-lang.pages.dev/install.sh | sh
+````
+
+## Example
+
+```cot
+func greet(name)
+    print "Hello " + name
+end
+
+greet("World")
+```
+
+## Features
+
+* Super simple syntax
+* Compiled + interpreted
+* Cross-platform
+* GUI support (Charlotte)
+* Modules & libraries
+
+## Status
+
+Early development (0.1.0)
