@@ -70,90 +70,28 @@ fn load_cotmod_file(path: &Path) -> Result<Value> {
 // ── Built-in Charlotte GUI module ─────────────────────────────────────────────
 
 fn make_charlotte_module() -> Value {
-    let mut ns: HashMap<String, Value> = HashMap::new();
-
-    macro_rules! charlotte_fn {
-        ($name:expr, $arity:expr, $body:expr) => {
-            ns.insert($name.to_string(), Value::NativeFunction(NativeFunction {
-                name: format!("charlotte.{}", $name),
-                arity: $arity,
-                func: Arc::new($body),
-            }));
-        };
+    #[cfg(feature = "gui")]
+    { return crate::charlotte::make_charlotte_module(); }
+    #[cfg(not(feature = "gui"))]
+    {
+        use std::collections::HashMap;
+        use std::sync::{Arc, Mutex};
+        let mut m: HashMap<String, Value> = HashMap::new();
+        m.insert("window".to_string(), Value::NativeFunction(NativeFunction {
+            name: "charlotte.window".to_string(),
+            arity: None,
+            func: Arc::new(|_| {
+                eprintln!("charlotte: GUI not available. Enable with: cargo build --features gui");
+                Ok(Value::Nil)
+            }),
+        }));
+        m.insert("version".to_string(), Value::NativeFunction(NativeFunction {
+            name: "charlotte.version".to_string(),
+            arity: Some(0),
+            func: Arc::new(|_| Ok(Value::Str("charlotte/stub (gui feature disabled)".into()))),
+        }));
+        Value::Module(Arc::new(Mutex::new(m)))
     }
-
-    charlotte_fn!("create_window", Some(3), |args| {
-        let title = args.get(0).map(|v| v.to_display()).unwrap_or_else(|| "Window".to_string());
-        let width  = args.get(1).map(|v| v.to_display()).unwrap_or_else(|| "800".to_string());
-        let height = args.get(2).map(|v| v.to_display()).unwrap_or_else(|| "600".to_string());
-        println!("[Charlotte] Creating window '{}' ({}x{})", title, width, height);
-        // Return a handle map representing the window
-        let mut handle: HashMap<String, Value> = HashMap::new();
-        handle.insert("title".to_string(), Value::Str(title));
-        handle.insert("width".to_string(),  Value::Str(width));
-        handle.insert("height".to_string(), Value::Str(height));
-        handle.insert("_type".to_string(),  Value::Str("window".to_string()));
-        Ok(Value::Map(Arc::new(Mutex::new(handle))))
-    });
-
-    charlotte_fn!("add_button", Some(3), |args| {
-        let _window = args.get(0);
-        let label = args.get(1).map(|v| v.to_display()).unwrap_or_default();
-        println!("[Charlotte] Adding button '{}'", label);
-        let mut handle: HashMap<String, Value> = HashMap::new();
-        handle.insert("label".to_string(), Value::Str(label));
-        handle.insert("_type".to_string(), Value::Str("button".to_string()));
-        // Store the callback
-        if let Some(cb) = args.get(2) {
-            handle.insert("_callback".to_string(), cb.clone());
-        }
-        Ok(Value::Map(Arc::new(Mutex::new(handle))))
-    });
-
-    charlotte_fn!("add_label", Some(2), |args| {
-        let _window = args.get(0);
-        let text = args.get(1).map(|v| v.to_display()).unwrap_or_default();
-        println!("[Charlotte] Adding label '{}'", text);
-        let mut handle: HashMap<String, Value> = HashMap::new();
-        handle.insert("text".to_string(), Value::Str(text));
-        handle.insert("_type".to_string(), Value::Str("label".to_string()));
-        Ok(Value::Map(Arc::new(Mutex::new(handle))))
-    });
-
-    charlotte_fn!("add_input", Some(2), |args| {
-        let _window = args.get(0);
-        let placeholder = args.get(1).map(|v| v.to_display()).unwrap_or_default();
-        println!("[Charlotte] Adding input field '{}'", placeholder);
-        let mut handle: HashMap<String, Value> = HashMap::new();
-        handle.insert("placeholder".to_string(), Value::Str(placeholder));
-        handle.insert("_type".to_string(), Value::Str("input".to_string()));
-        Ok(Value::Map(Arc::new(Mutex::new(handle))))
-    });
-
-    charlotte_fn!("run", Some(1), |args| {
-        let title = args.get(0)
-            .and_then(|v| match v {
-                Value::Map(m) => m.lock().unwrap().get("title").cloned(),
-                _ => None,
-            })
-            .map(|v| v.to_display())
-            .unwrap_or_else(|| "App".to_string());
-        println!("[Charlotte] Running app '{}' — GUI event loop started (stub)", title);
-        println!("[Charlotte] In a full build, this launches the native GUI window.");
-        Ok(Value::Nil)
-    });
-
-    charlotte_fn!("set_title", Some(2), |args| {
-        if let Some(Value::Map(m)) = args.get(0) {
-            if let Some(Value::Str(title)) = args.get(1) {
-                m.lock().unwrap().insert("title".to_string(), Value::Str(title.clone()));
-                println!("[Charlotte] Window title set to '{}'", title);
-            }
-        }
-        Ok(Value::Nil)
-    });
-
-    Value::Module(Arc::new(Mutex::new(ns)))
 }
 
 // ── Math module ──────────────────────────────────────────────────────────────

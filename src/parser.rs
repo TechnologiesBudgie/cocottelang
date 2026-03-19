@@ -501,12 +501,12 @@ impl Parser {
                 let operand = self.parse_unary()?;
                 Ok(Expr::UnaryOp { op: UnaryOp::Neg, operand: Box::new(operand), span })
             }
-            // Special: `divide X by Y` → X / Y
+            // Special: `divide X by Y` — accepts full call/access expressions
             TokenKind::Divide => {
                 self.advance();
-                let left = self.parse_primary()?;
+                let left = self.parse_call_access()?;
                 self.eat(&TokenKind::By)?;
-                let right = self.parse_primary()?;
+                let right = self.parse_call_access()?;
                 Ok(Expr::BinOp {
                     op: BinOp::Div,
                     left: Box::new(left),

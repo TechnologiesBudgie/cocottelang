@@ -67,9 +67,35 @@ impl Environment {
 
     /// Snapshot all bindings visible from this scope (for closures)
     pub fn snapshot(&self) -> HashMap<String, Value> {
+        self.snapshot_depth(0)
+    }
+
+    fn snapshot_depth(&self, depth: usize) -> HashMap<String, Value> {
         let mut map = HashMap::new();
         if let Some(ref parent) = self.parent {
-            map.extend(parent.snapshot());
+            // From parent scopes: skip functions to avoid exponential blowup
+            // when many library/global functions are in scope.
+            map.extend(parent.snapshot_depth(depth + 1));
+        }
+        for (k, v) in &self.vars {
+            match v {
+                // Native builtins: never capture (always available globally)
+                Value::NativeFunction(_) => {}
+                // User functions: capture from current scope only (depth==0).
+                // This captures lambda/function parameters passed to closures,
+                // but skips global functions defined in parent scopes.
+                Value::Function(_) if depth > 0 => {}
+                _ => { map.insert(k.clone(), v.clone()); }
+            }
+        }
+        map
+    }
+
+    /// Full snapshot including functions — used only for library export
+    pub fn full_snapshot(&self) -> HashMap<String, Value> {
+        let mut map = HashMap::new();
+        if let Some(ref parent) = self.parent {
+            map.extend(parent.full_snapshot());
         }
         map.extend(self.vars.clone());
         map
@@ -87,6 +113,40 @@ impl Environment {
     /// Consume this environment and return the parent, if any
     pub fn into_parent(self) -> Option<Environment> {
         self.parent.map(|b| *b)
+    }
+
+    /// Walk up to the root (global) scope and return all user-defined functions there
+    pub fn top_scope_functions(&self) -> HashMap<String, Value> {
+        // If we have a parent, walk up to root
+        if let Some(ref parent) = self.parent {
+            return parent.top_scope_functions();
+        }
+        // We are the root scope — return functions
+        let mut map = HashMap::new();
+        for (k, v) in &self.vars {
+            if matches!(v, Value::Function(_)) {
+                map.insert(k.clone(), v.clone());
+            }
+        }
+        map
+    }
+
+    /// Walk to root scope and return everything
+    pub fn top_scope(&self) -> HashMap<String, Value> {
+        if let Some(ref parent) = self.parent {
+            return parent.top_scope();
+        }
+        self.vars.clone()
+    }
+
+    /// True if this scope directly contains the key (not parent)
+    pub fn has_local(&self, name: &str) -> bool {
+        self.vars.contains_key(name)
+    }
+
+    /// True if this scope has a parent (i.e. we are inside a function/block)
+    pub fn has_parent(&self) -> bool {
+        self.parent.is_some()
     }
 }
 

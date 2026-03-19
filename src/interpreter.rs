@@ -35,13 +35,49 @@ impl Interpreter {
         }
     }
 
-    /// Export all top-level names (for use as a library)
+    /// Export all top-level names (for use as a library) — includes functions
     pub fn export_namespace(&self) -> HashMap<String, Value> {
-        self.env.snapshot()
+        self.env.full_snapshot()
+    }
+
+    /// Collect only user-defined functions from the top-level scope
+    pub fn global_functions(&self) -> HashMap<String, Value> {
+        let mut map = HashMap::new();
+        // Walk to the root env (no parent = global scope)
+        let top = self.env.top_scope();
+        for (k, v) in top {
+            if matches!(v, Value::Function(_)) {
+                map.insert(k, v);
+            }
+        }
+        map
+    }
+
+    /// Public wrapper for call_function (used by charlotte module)
+    #[cfg(feature = "gui")]
+    pub fn call_function_pub(
+        &mut self,
+        func: &CocotteFunction,
+        args: Vec<Value>,
+        self_val: Option<Value>,
+    ) -> Result<Value> {
+        self.call_function(func, args, self_val)
+    }
+
+    /// Copy global variable bindings from another interpreter (for charlotte)
+    #[cfg(feature = "gui")]
+    pub fn copy_globals_from(&mut self, other: &Interpreter) {
+        let snapshot = other.env.snapshot();
+        for (k, v) in snapshot {
+            self.env.define(&k, v);
+        }
+        self.project_root = other.project_root.clone();
     }
 
     /// Run an entire program (list of statements)
     pub fn run(&mut self, program: &Program) -> Result<Value> {
+        // Register this interpreter in the thread-local so charlotte module can access it
+        #[cfg(feature = "gui")] crate::charlotte::set_active_interpreter(self as *mut Interpreter as usize);
         let mut last = Value::Nil;
         for stmt in &program.statements {
             last = self.exec_stmt(stmt)?;
@@ -66,7 +102,16 @@ impl Interpreter {
             }
 
             Stmt::FuncDecl { name, params, body, .. } => {
-                let closure = self.env.snapshot();
+                // Top-level functions get an empty closure — they're global and
+                // always found via the env chain. This prevents O(n²) snapshot
+                // blowup when many functions are defined (e.g. in a library).
+                // Nested functions (inside other functions) get a real snapshot
+                // for proper lexical scoping.
+                let closure = if self.env.has_parent() {
+                    self.env.snapshot()
+                } else {
+                    std::collections::HashMap::new()
+                };
                 let func = Value::Function(CocotteFunction {
                     name: Some(name.clone()),
                     params: params.clone(),
@@ -430,6 +475,14 @@ impl Interpreter {
             new_env.define_local("self", sv);
         }
 
+        // Inject global user-defined functions so library funcs can call each other
+        // without needing them in the closure snapshot (avoids exponential blowup)
+        let global_fns = self.env.top_scope_functions();
+        for (k, v) in global_fns {
+            if !new_env.has_local(&k) {
+                new_env.define_local(&k, v);
+            }
+        }
         self.env = new_env;
         let result = self.exec_block(&func.body);
         // Restore the parent (saved) environment
@@ -467,12 +520,8 @@ impl Interpreter {
                 }
                 if let Some(func) = methods {
                     let self_val = Value::Instance(inst_arc.clone());
-                    let result = self.call_function(&func, args, Some(self_val.clone()))?;
-                    // Write back any mutations to `self`
-                    if let Value::Instance(new_inst) = self.env.get("self").unwrap_or(Value::Nil) {
-                        let updated = new_inst.lock().unwrap().clone();
-                        *inst_arc.lock().unwrap() = updated;
-                    }
+                    let result = self.call_function(&func, args, Some(self_val))?;
+                    // inst_arc is already mutated in-place via Arc<Mutex> — no copy needed
                     return Ok(result);
                 }
                 Err(CocotteError::runtime_at(
@@ -665,11 +714,8 @@ impl Interpreter {
         if let Some(init_fn) = class.methods.get("init") {
             let init_clone = init_fn.clone();
             self.call_function(&init_clone, args, Some(instance.clone()))?;
-            // Apply any field mutations `self` made during init
-            if let Some(Value::Instance(si)) = self.env.get("self") {
-                let updated = si.lock().unwrap().clone();
-                *inst_arc.lock().unwrap() = updated;
-            }
+            // inst_arc is already updated in-place by `self.field = x` assignments
+            // inside init (which operate on the same Arc<Mutex>). No copy needed.
         }
 
         Ok(Value::Instance(inst_arc))
@@ -691,41 +737,104 @@ impl Interpreter {
     // ── Built-in methods on primitive types ───────────────────────────────────
 
     fn string_method(&self, s: &str, method: &str, args: Vec<Value>, span: &Span) -> Result<Value> {
+        let chars: Vec<char> = s.chars().collect();
         match method {
-            "upper" => Ok(Value::Str(s.to_uppercase())),
-            "lower" => Ok(Value::Str(s.to_lowercase())),
-            "trim" => Ok(Value::Str(s.trim().to_string())),
-            "len" => Ok(Value::Number(s.len() as f64)),
-            "split" => {
-                let sep = args.get(0).map(|v| v.to_display()).unwrap_or_else(|| " ".to_string());
-                let parts: Vec<Value> = s.split(sep.as_str())
-                    .map(|p| Value::Str(p.to_string()))
-                    .collect();
-                Ok(Value::List(Arc::new(Mutex::new(parts))))
-            }
-            "contains" => {
-                let sub = args.get(0).map(|v| v.to_display()).unwrap_or_default();
-                Ok(Value::Bool(s.contains(sub.as_str())))
-            }
-            "replace" => {
-                let from = args.get(0).map(|v| v.to_display()).unwrap_or_default();
-                let to = args.get(1).map(|v| v.to_display()).unwrap_or_default();
-                Ok(Value::Str(s.replace(from.as_str(), to.as_str())))
-            }
-            "starts_with" => {
-                let pre = args.get(0).map(|v| v.to_display()).unwrap_or_default();
-                Ok(Value::Bool(s.starts_with(pre.as_str())))
-            }
-            "ends_with" => {
-                let suf = args.get(0).map(|v| v.to_display()).unwrap_or_default();
-                Ok(Value::Bool(s.ends_with(suf.as_str())))
-            }
-            "to_number" => s.parse::<f64>()
+            "upper"       => Ok(Value::Str(s.to_uppercase())),
+            "lower"       => Ok(Value::Str(s.to_lowercase())),
+            "trim"        => Ok(Value::Str(s.trim().to_string())),
+            "trim_left"   => Ok(Value::Str(s.trim_start().to_string())),
+            "trim_right"  => Ok(Value::Str(s.trim_end().to_string())),
+            "len"         => Ok(Value::Number(chars.len() as f64)),
+            "is_empty"    => Ok(Value::Bool(s.is_empty())),
+            "to_number"   => s.trim().parse::<f64>()
                 .map(Value::Number)
                 .map_err(|_| CocotteError::runtime(&format!("Cannot convert '{}' to number", s))),
+            "to_list"     => {
+                let items = chars.iter().map(|c| Value::Str(c.to_string())).collect();
+                Ok(Value::List(Arc::new(Mutex::new(items))))
+            }
+            "get" => {
+                let idx = match args.first() {
+                    Some(Value::Number(n)) => *n as usize,
+                    _ => return Err(CocotteError::type_err("string.get() requires a number index")),
+                };
+                chars.get(idx)
+                    .map(|c| Value::Str(c.to_string()))
+                    .ok_or_else(|| CocotteError::runtime(&format!("String index {} out of range", idx)))
+            }
+            "slice" => {
+                let from = match args.first() { Some(Value::Number(n)) => *n as usize, _ => 0 };
+                let to   = match args.get(1)  { Some(Value::Number(n)) => *n as usize, _ => chars.len() };
+                let to   = to.min(chars.len());
+                if from > to { return Ok(Value::Str(String::new())); }
+                Ok(Value::Str(chars[from..to].iter().collect()))
+            }
+            "index_of" => {
+                let pat = args.first().map(|v| v.to_display()).unwrap_or_default();
+                Ok(match s.find(pat.as_str()) {
+                    Some(byte_idx) => Value::Number(s[..byte_idx].chars().count() as f64),
+                    None => Value::Number(-1.0),
+                })
+            }
+            "repeat" => {
+                let n = match args.first() { Some(Value::Number(n)) => *n as usize, _ => 1 };
+                Ok(Value::Str(s.repeat(n)))
+            }
+            "pad_left" => {
+                let width = match args.first() { Some(Value::Number(n)) => *n as usize, _ => 0 };
+                let pad   = args.get(1).map(|v| v.to_display()).unwrap_or_else(|| " ".into());
+                let pad_c = pad.chars().next().unwrap_or(' ');
+                if chars.len() >= width { return Ok(Value::Str(s.to_string())); }
+                let fill = pad_c.to_string().repeat(width - chars.len());
+                Ok(Value::Str(fill + s))
+            }
+            "pad_right" => {
+                let width = match args.first() { Some(Value::Number(n)) => *n as usize, _ => 0 };
+                let pad   = args.get(1).map(|v| v.to_display()).unwrap_or_else(|| " ".into());
+                let pad_c = pad.chars().next().unwrap_or(' ');
+                if chars.len() >= width { return Ok(Value::Str(s.to_string())); }
+                let fill = pad_c.to_string().repeat(width - chars.len());
+                Ok(Value::Str(s.to_string() + &fill))
+            }
+            "split" => {
+                let sep = args.first().map(|v| v.to_display()).unwrap_or_else(|| " ".to_string());
+                let parts: Vec<Value> = if sep.is_empty() {
+                    // split("") means split into individual characters
+                    s.chars().map(|c| Value::Str(c.to_string())).collect()
+                } else {
+                    s.split(sep.as_str()).map(|p| Value::Str(p.to_string())).collect()
+                };
+                Ok(Value::List(Arc::new(Mutex::new(parts))))
+            }
+            "split_lines" => {
+                let parts: Vec<Value> = s.lines().map(|l| Value::Str(l.to_string())).collect();
+                Ok(Value::List(Arc::new(Mutex::new(parts))))
+            }
+            "contains"    => {
+                let sub = args.first().map(|v| v.to_display()).unwrap_or_default();
+                Ok(Value::Bool(s.contains(sub.as_str())))
+            }
+            "replace"     => {
+                let from = args.first().map(|v| v.to_display()).unwrap_or_default();
+                let to   = args.get(1).map(|v| v.to_display()).unwrap_or_default();
+                Ok(Value::Str(s.replace(from.as_str(), to.as_str())))
+            }
+            "replace_first" => {
+                let from = args.first().map(|v| v.to_display()).unwrap_or_default();
+                let to   = args.get(1).map(|v| v.to_display()).unwrap_or_default();
+                Ok(Value::Str(s.replacen(from.as_str(), to.as_str(), 1)))
+            }
+            "starts_with" => {
+                let pre = args.first().map(|v| v.to_display()).unwrap_or_default();
+                Ok(Value::Bool(s.starts_with(pre.as_str())))
+            }
+            "ends_with"   => {
+                let suf = args.first().map(|v| v.to_display()).unwrap_or_default();
+                Ok(Value::Bool(s.ends_with(suf.as_str())))
+            }
             other => Err(CocotteError::runtime_at(
                 span.line, span.col,
-                &format!("String has no method '{}'", other),
+                &format!("String has no method '{}'. Available: upper lower trim trim_left trim_right len is_empty get slice index_of repeat pad_left pad_right split split_lines contains replace replace_first starts_with ends_with to_number to_list", other),
             )),
         }
     }
@@ -780,9 +889,117 @@ impl Interpreter {
                     &format!("Index {} out of range", idx)
                 ))
             }
+            "slice" => {
+                let from = match args.first() { Some(Value::Number(n)) => *n as usize, _ => 0 };
+                let to   = match args.get(1)  { Some(Value::Number(n)) => *n as usize, _ => l.lock().unwrap().len() };
+                let items = l.lock().unwrap();
+                let to = to.min(items.len());
+                if from > to { return Ok(Value::List(Arc::new(Mutex::new(Vec::new())))); }
+                Ok(Value::List(Arc::new(Mutex::new(items[from..to].to_vec()))))
+            }
+            "index_of" => {
+                let needle = args.first().cloned().unwrap_or(Value::Nil);
+                let items = l.lock().unwrap();
+                Ok(match items.iter().position(|v| v == &needle) {
+                    Some(i) => Value::Number(i as f64),
+                    None    => Value::Number(-1.0),
+                })
+            }
+            "find" => {
+                let f = match args.into_iter().next() {
+                    Some(Value::Function(f)) => f,
+                    _ => return Err(CocotteError::type_err("list.find() requires a function")),
+                };
+                let items = l.lock().unwrap().clone();
+                for v in items {
+                    let result = self.call_function(&f, vec![v.clone()], None)?;
+                    if result.is_truthy() { return Ok(v); }
+                }
+                Ok(Value::Nil)
+            }
+            "filter" => {
+                let f = match args.into_iter().next() {
+                    Some(Value::Function(f)) => f,
+                    _ => return Err(CocotteError::type_err("list.filter() requires a function")),
+                };
+                let items = l.lock().unwrap().clone();
+                let mut out = Vec::new();
+                for v in items {
+                    let result = self.call_function(&f, vec![v.clone()], None)?;
+                    if result.is_truthy() { out.push(v); }
+                }
+                Ok(Value::List(Arc::new(Mutex::new(out))))
+            }
+            "map" => {
+                let f = match args.into_iter().next() {
+                    Some(Value::Function(f)) => f,
+                    _ => return Err(CocotteError::type_err("list.map() requires a function")),
+                };
+                let items = l.lock().unwrap().clone();
+                let mut out = Vec::new();
+                for v in items {
+                    out.push(self.call_function(&f, vec![v], None)?);
+                }
+                Ok(Value::List(Arc::new(Mutex::new(out))))
+            }
+            "reduce" => {
+                let f = match args.first().cloned() {
+                    Some(Value::Function(f)) => f,
+                    _ => return Err(CocotteError::type_err("list.reduce() requires (function, initial_value)")),
+                };
+                let init = args.get(1).cloned().unwrap_or(Value::Number(0.0));
+                let items = l.lock().unwrap().clone();
+                let mut acc = init;
+                for v in items {
+                    acc = self.call_function(&f, vec![acc, v], None)?;
+                }
+                Ok(acc)
+            }
+            "each" => {
+                let f = match args.into_iter().next() {
+                    Some(Value::Function(f)) => f,
+                    _ => return Err(CocotteError::type_err("list.each() requires a function")),
+                };
+                let items = l.lock().unwrap().clone();
+                for v in items {
+                    self.call_function(&f, vec![v], None)?;
+                }
+                Ok(Value::Nil)
+            }
+            "first"   => l.lock().unwrap().first().cloned().ok_or_else(|| CocotteError::runtime("list.first() on empty list")),
+            "last"    => l.lock().unwrap().last().cloned().ok_or_else(|| CocotteError::runtime("list.last() on empty list")),
+            "is_empty" => Ok(Value::Bool(l.lock().unwrap().is_empty())),
+            "count" => {
+                let f = match args.into_iter().next() {
+                    Some(Value::Function(f)) => f,
+                    _ => return Ok(Value::Number(l.lock().unwrap().len() as f64)),
+                };
+                let items = l.lock().unwrap().clone();
+                let mut n = 0usize;
+                for v in items {
+                    let r = self.call_function(&f, vec![v], None)?;
+                    if r.is_truthy() { n += 1; }
+                }
+                Ok(Value::Number(n as f64))
+            }
+            "extend" => {
+                let other = match args.into_iter().next() {
+                    Some(Value::List(other)) => other.lock().unwrap().clone(),
+                    _ => return Err(CocotteError::type_err("list.extend() requires a list")),
+                };
+                l.lock().unwrap().extend(other);
+                Ok(Value::Nil)
+            }
+            "copy" => {
+                Ok(Value::List(Arc::new(Mutex::new(l.lock().unwrap().clone()))))
+            }
+            "clear" => {
+                l.lock().unwrap().clear();
+                Ok(Value::Nil)
+            }
             other => Err(CocotteError::runtime_at(
                 span.line, span.col,
-                &format!("List has no method '{}'", other),
+                &format!("List has no method '{}'. Available: push pop get len is_empty first last contains index_of find slice map filter reduce each count extend copy clear reverse sort join", other),
             )),
         }
     }

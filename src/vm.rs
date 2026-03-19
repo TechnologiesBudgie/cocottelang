@@ -720,34 +720,23 @@ impl VM {
             }
             Value::List(l) => {
                 match method {
-                    "push" => {
-                        let val = args.into_iter().next().unwrap_or(Value::Nil);
-                        l.lock().unwrap().push(val);
-                        Ok(Value::Nil)
-                    }
-                    "pop" => {
-                        Ok(l.lock().unwrap().pop().unwrap_or(Value::Nil))
-                    }
-                    "len" => Ok(Value::Number(l.lock().unwrap().len() as f64)),
-                    "get" => {
-                        let idx = match args.first() { Some(Value::Number(n)) => *n as usize, _ => return Err(CocotteError::type_err("get() requires a number index")) };
-                        Ok(l.lock().unwrap().get(idx).cloned().unwrap_or(Value::Nil))
-                    }
-                    "contains" => {
-                        let needle = args.first().cloned().unwrap_or(Value::Nil);
-                        Ok(Value::Bool(l.lock().unwrap().contains(&needle)))
-                    }
-                    "reverse" => { l.lock().unwrap().reverse(); Ok(Value::Nil) }
-                    "sort" => {
-                        let mut v = l.lock().unwrap();
-                        v.sort_by(|a, b| a.to_display().cmp(&b.to_display()));
-                        Ok(Value::Nil)
-                    }
-                    "join" => {
-                        let sep = match args.first() { Some(Value::Str(s)) => s.clone(), _ => String::new() };
-                        let joined = l.lock().unwrap().iter().map(|v| v.to_display()).collect::<Vec<_>>().join(&sep);
-                        Ok(Value::Str(joined))
-                    }
+                    "push"     => { let val = args.into_iter().next().unwrap_or(Value::Nil); l.lock().unwrap().push(val); Ok(Value::Nil) }
+                    "pop"      => Ok(l.lock().unwrap().pop().unwrap_or(Value::Nil)),
+                    "len"      => Ok(Value::Number(l.lock().unwrap().len() as f64)),
+                    "is_empty" => Ok(Value::Bool(l.lock().unwrap().is_empty())),
+                    "first"    => Ok(l.lock().unwrap().first().cloned().unwrap_or(Value::Nil)),
+                    "last"     => Ok(l.lock().unwrap().last().cloned().unwrap_or(Value::Nil)),
+                    "clear"    => { l.lock().unwrap().clear(); Ok(Value::Nil) }
+                    "copy"     => Ok(Value::List(Arc::new(Mutex::new(l.lock().unwrap().clone())))),
+                    "reverse"  => { l.lock().unwrap().reverse(); Ok(Value::Nil) }
+                    "sort"     => { let mut v = l.lock().unwrap(); v.sort_by(|a,b| match (a,b) { (Value::Number(x),Value::Number(y)) => x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal), (Value::Str(x),Value::Str(y)) => x.cmp(y), _ => std::cmp::Ordering::Equal }); Ok(Value::Nil) }
+                    "get"      => { let i = match args.first() { Some(Value::Number(n)) => *n as usize, _ => return Err(CocotteError::type_err("get() requires a number index")) }; Ok(l.lock().unwrap().get(i).cloned().unwrap_or(Value::Nil)) }
+                    "contains" => { let n = args.first().cloned().unwrap_or(Value::Nil); Ok(Value::Bool(l.lock().unwrap().contains(&n))) }
+                    "index_of" => { let n = args.first().cloned().unwrap_or(Value::Nil); Ok(match l.lock().unwrap().iter().position(|v| v == &n) { Some(i) => Value::Number(i as f64), None => Value::Number(-1.0) }) }
+                    "slice"    => { let from = match args.first() { Some(Value::Number(n)) => *n as usize, _ => 0 }; let items = l.lock().unwrap(); let to = match args.get(1) { Some(Value::Number(n)) => (*n as usize).min(items.len()), _ => items.len() }; if from > to { return Ok(Value::List(Arc::new(Mutex::new(vec![])))); } Ok(Value::List(Arc::new(Mutex::new(items[from..to].to_vec())))) }
+                    "extend"   => { let other = match args.into_iter().next() { Some(Value::List(o)) => o.lock().unwrap().clone(), _ => return Err(CocotteError::type_err("list.extend() requires a list")) }; l.lock().unwrap().extend(other); Ok(Value::Nil) }
+                    "join"     => { let sep = match args.first() { Some(Value::Str(s)) => s.clone(), _ => String::new() }; Ok(Value::Str(l.lock().unwrap().iter().map(|v| v.to_display()).collect::<Vec<_>>().join(&sep))) }
+                    // map/filter/reduce/find/each/count not available in bytecode VM (use tree-walk mode)
                     _ => Err(CocotteError::runtime(&format!("List has no method '{}'", method)))
                 }
             }
@@ -775,25 +764,35 @@ impl VM {
             }
             Value::Str(s) => {
                 let s = s.clone();
+                let chars: Vec<char> = s.chars().collect();
                 match method {
-                    "len"         => Ok(Value::Number(s.chars().count() as f64)),
+                    "len"         => Ok(Value::Number(chars.len() as f64)),
+                    "is_empty"    => Ok(Value::Bool(s.is_empty())),
                     "upper"       => Ok(Value::Str(s.to_uppercase())),
                     "lower"       => Ok(Value::Str(s.to_lowercase())),
                     "trim"        => Ok(Value::Str(s.trim().to_string())),
+                    "trim_left"   => Ok(Value::Str(s.trim_start().to_string())),
+                    "trim_right"  => Ok(Value::Str(s.trim_end().to_string())),
                     "to_number"   => s.trim().parse::<f64>().map(Value::Number).map_err(|_| CocotteError::runtime("Cannot convert string to number")),
+                    "to_list"     => { let items = chars.iter().map(|c| Value::Str(c.to_string())).collect(); Ok(Value::List(Arc::new(Mutex::new(items)))) }
+                    "get"         => { let i = match args.first() { Some(Value::Number(n)) => *n as usize, _ => return Err(CocotteError::type_err("string.get() requires a number index")) }; chars.get(i).map(|c| Value::Str(c.to_string())).ok_or_else(|| CocotteError::runtime(&format!("String index {} out of range", i))) }
+                    "slice"       => {
+                        let from = match args.first() { Some(Value::Number(n)) => *n as usize, _ => 0 };
+                        let to   = match args.get(1)  { Some(Value::Number(n)) => *n as usize, _ => chars.len() }.min(chars.len());
+                        if from > to { return Ok(Value::Str(String::new())); }
+                        Ok(Value::Str(chars[from..to].iter().collect()))
+                    }
+                    "index_of"    => { let pat = args.first().map(|v| v.to_display()).unwrap_or_default(); Ok(match s.find(&pat as &str) { Some(i) => Value::Number(s[..i].chars().count() as f64), None => Value::Number(-1.0) }) }
+                    "repeat"      => { let n = match args.first() { Some(Value::Number(n)) => *n as usize, _ => 1 }; Ok(Value::Str(s.repeat(n))) }
+                    "pad_left"    => { let w = match args.first() { Some(Value::Number(n)) => *n as usize, _ => 0 }; let p = args.get(1).map(|v| v.to_display()).unwrap_or_else(|| " ".into()); let pc = p.chars().next().unwrap_or(' '); if chars.len() >= w { return Ok(Value::Str(s)); } Ok(Value::Str(pc.to_string().repeat(w - chars.len()) + &s)) }
+                    "pad_right"   => { let w = match args.first() { Some(Value::Number(n)) => *n as usize, _ => 0 }; let p = args.get(1).map(|v| v.to_display()).unwrap_or_else(|| " ".into()); let pc = p.chars().next().unwrap_or(' '); if chars.len() >= w { return Ok(Value::Str(s)); } Ok(Value::Str(s + &pc.to_string().repeat(w - chars.len()))) }
                     "contains"    => { let pat = args.first().map(|v| v.to_display()).unwrap_or_default(); Ok(Value::Bool(s.contains(&pat as &str))) }
                     "starts_with" => { let pat = args.first().map(|v| v.to_display()).unwrap_or_default(); Ok(Value::Bool(s.starts_with(&pat as &str))) }
                     "ends_with"   => { let pat = args.first().map(|v| v.to_display()).unwrap_or_default(); Ok(Value::Bool(s.ends_with(&pat as &str))) }
-                    "replace"     => {
-                        let from = args.first().map(|v| v.to_display()).unwrap_or_default();
-                        let to   = args.get(1).map(|v| v.to_display()).unwrap_or_default();
-                        Ok(Value::Str(s.replace(&from as &str, &to as &str)))
-                    }
-                    "split" => {
-                        let sep = args.first().map(|v| v.to_display()).unwrap_or_default();
-                        let parts = s.split(&sep as &str).map(|p| Value::Str(p.to_string())).collect();
-                        Ok(Value::List(Arc::new(Mutex::new(parts))))
-                    }
+                    "replace"     => { let from = args.first().map(|v| v.to_display()).unwrap_or_default(); let to = args.get(1).map(|v| v.to_display()).unwrap_or_default(); Ok(Value::Str(s.replace(&from as &str, &to as &str))) }
+                    "replace_first" => { let from = args.first().map(|v| v.to_display()).unwrap_or_default(); let to = args.get(1).map(|v| v.to_display()).unwrap_or_default(); Ok(Value::Str(s.replacen(&from as &str, &to as &str, 1))) }
+                    "split"       => { let sep = args.first().map(|v| v.to_display()).unwrap_or_default(); let parts: Vec<Value> = if sep.is_empty() { s.chars().map(|c| Value::Str(c.to_string())).collect() } else { s.split(&sep as &str).map(|p| Value::Str(p.to_string())).collect() }; Ok(Value::List(Arc::new(Mutex::new(parts)))) }
+                    "split_lines" => { let parts = s.lines().map(|l| Value::Str(l.to_string())).collect(); Ok(Value::List(Arc::new(Mutex::new(parts)))) }
                     _ => Err(CocotteError::runtime(&format!("String has no method '{}'", method)))
                 }
             }

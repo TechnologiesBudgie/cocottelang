@@ -15,6 +15,8 @@ mod bytecode;
 mod vm;
 mod charlotfile;
 mod codegen;
+#[cfg(feature = "gui")]
+mod charlotte;
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
