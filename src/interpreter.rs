@@ -163,7 +163,7 @@ impl Interpreter {
                 Ok(Value::Nil)
             }
 
-            Stmt::Try { body, catch_type: _, catch_var, catch_body, .. } => {
+            Stmt::Try { body, catch_var, catch_body, .. } => {
                 match self.exec_block(body) {
                     Ok(_) => {}
                     Err(e) if !e.is_signal() => {
@@ -189,7 +189,7 @@ impl Interpreter {
                 Ok(Value::Nil)
             }
 
-            Stmt::ModuleAdd { name, span } => {
+            Stmt::ModuleAdd { name, span: _ } => {
                 let module = load_module(name, &self.project_root)
                     .map_err(|e| CocotteError::module_err(&e.message)
                         .with_hint(&format!(

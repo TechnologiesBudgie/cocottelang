@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crate::bytecode::{Chunk, Instruction};
-use crate::error::{CocotteError, Result, Signal};
-use crate::value::{Value, CocotteFunction, CocotteClass, ClassInstance, NativeFunction};
+use crate::error::{CocotteError, Result};
+use crate::value::{Value, CocotteFunction, CocotteClass, ClassInstance};
 use crate::builtins::register_builtins;
 use crate::modules::{load_module, load_library};
 
@@ -22,24 +22,6 @@ impl Frame {
     }
 }
 
-/// Iterator wrapper for `for` loops
-#[derive(Clone, Debug)]
-struct CocotteIter {
-    items: Vec<Value>,
-    pos: usize,
-}
-
-impl CocotteIter {
-    fn next_item(&mut self) -> Option<Value> {
-        if self.pos < self.items.len() {
-            let item = self.items[self.pos].clone();
-            self.pos += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-}
 
 pub struct VM {
     stack: Vec<Value>,

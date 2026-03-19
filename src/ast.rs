@@ -1,6 +1,8 @@
 // ast.rs — Abstract Syntax Tree node definitions for Cocotte
 // Each variant represents a parsed language construct
 
+#![allow(dead_code)]
+
 /// Source location info for error reporting
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
@@ -84,7 +86,6 @@ pub enum Stmt {
     Try {
         body: Vec<Stmt>,
         catch_var: Option<String>,
-        catch_type: Option<String>,
         catch_body: Vec<Stmt>,
         span: Span,
     },

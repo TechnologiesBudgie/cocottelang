@@ -10,9 +10,11 @@ use crate::error::{CocotteError, Result};
 
 /// A parsed Charlotfile
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Charlotfile {
     pub project_name: String,
     pub author: String,
+    #[allow(dead_code)]
     pub variables: HashMap<String, String>,
     pub tasks: HashMap<String, Vec<TaskStep>>,
 }

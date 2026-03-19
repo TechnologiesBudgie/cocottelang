@@ -10,6 +10,7 @@ pub struct Parser {
     pos: usize,
 }
 
+#[allow(dead_code)]
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         // Filter out most newlines (we only care about them as statement terminators)
@@ -30,6 +31,7 @@ impl Parser {
         &self.tokens[self.tokens.len() - 1]
     }
 
+    #[allow(dead_code)]
     fn peek_raw(&self) -> &Token {
         if self.pos < self.tokens.len() {
             &self.tokens[self.pos]
@@ -56,6 +58,7 @@ impl Parser {
         }
     }
 
+    #[allow(dead_code)]
     fn check(&self, kind: &TokenKind) -> bool {
         std::mem::discriminant(&self.peek().kind) == std::mem::discriminant(kind)
     }
@@ -275,11 +278,10 @@ impl Parser {
         }
         self.eat(&TokenKind::Catch)?;
         // Optional catch variable name: `catch err` binds the error message to `err`
-        let (catch_type, catch_var) = if let TokenKind::Ident(_) = self.peek().kind.clone() {
-            let t = self.eat_ident()?;
-            (None, Some(t))
+        let catch_var = if let TokenKind::Ident(_) = self.peek().kind.clone() {
+            Some(self.eat_ident()?)
         } else {
-            (None, None)
+            None
         };
         self.skip_newlines();
         let mut catch_body = Vec::new();
@@ -288,7 +290,7 @@ impl Parser {
             self.skip_newlines();
         }
         self.eat(&TokenKind::End)?;
-        Ok(Stmt::Try { body, catch_var, catch_type, catch_body, span })
+        Ok(Stmt::Try { body, catch_var, catch_body, span })
     }
 
     fn parse_print(&mut self) -> Result<Stmt> {
