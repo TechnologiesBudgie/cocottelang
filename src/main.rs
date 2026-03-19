@@ -421,7 +421,7 @@ fn cmd_clean() -> Result<()> {
         }
     }
     // Remove temp build dirs
-    let tmp_pattern = std::env::temp_dir();
+    let _tmp_pattern = std::env::temp_dir();
     println!("{} Clean complete", "✓".green().bold());
     Ok(())
 }

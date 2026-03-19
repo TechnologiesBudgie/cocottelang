@@ -11,7 +11,6 @@ pub enum Instruction {
     LoadName(String),      // Push a variable's value
     StoreName(String),     // Pop stack → store in named variable
     Pop,                   // Discard top of stack
-    Dup,                   // Duplicate top of stack
 
     // Arithmetic / logic
     Add,
@@ -92,8 +91,6 @@ pub enum Instruction {
 pub struct Chunk {
     pub name: String,
     pub instructions: Vec<Instruction>,
-    /// Constant pool (indexed by LoadConst)
-    pub constants: Vec<Value>,
 }
 
 impl Chunk {
@@ -101,7 +98,6 @@ impl Chunk {
         Chunk {
             name: name.to_string(),
             instructions: Vec::new(),
-            constants: Vec::new(),
         }
     }
 
