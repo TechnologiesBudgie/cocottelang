@@ -388,7 +388,7 @@ serde_json = "1"
 colored    = "2"
 indexmap   = "2"
 dirs       = "5"
-eframe     = { version = "0.29", optional = true }
+eframe     = { version = "0.29", optional = true, features = ["wgpu"] }
 egui       = { version = "0.29", optional = true }
 
 [features]

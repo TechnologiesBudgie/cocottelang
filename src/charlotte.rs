@@ -125,10 +125,14 @@ pub fn run_window(
         interp:  app_interp,
     };
 
+    // Use wgpu renderer — more reliable than glow on Linux (Wayland + X11),
+    // avoids the black-window issue caused by missing OpenGL drivers or
+    // compositor-level GL compositing problems.
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(title)
             .with_inner_size([width, height]),
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
 
