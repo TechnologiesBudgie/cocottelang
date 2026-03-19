@@ -492,4 +492,135 @@ pub fn register_builtins(env: &mut HashMap<String, Value>) {
             _ => Err(CocotteError::type_err("has_key() requires a map")),
         }
     });
+
+    // ── Number formatting ─────────────────────────────────────────────────────
+    builtin!("format_number", Some(2), |args| {
+        match (&args[0], &args[1]) {
+            (Value::Number(n), Value::Number(d)) =>
+                Ok(Value::Str(format!("{:.prec$}", n, prec = *d as usize))),
+            _ => Err(CocotteError::type_err("format_number(n, decimals) requires two numbers")),
+        }
+    });
+    builtin!("number_to_int", Some(1), |args| {
+        match &args[0] {
+            Value::Number(n) => Ok(Value::Number(n.trunc())),
+            _ => Err(CocotteError::type_err("number_to_int() requires a number")),
+        }
+    });
+
+    // ── Type checks ───────────────────────────────────────────────────────────
+    builtin!("is_number", Some(1), |args| {
+        Ok(Value::Bool(matches!(args.first(), Some(Value::Number(_)))))
+    });
+    builtin!("is_string", Some(1), |args| {
+        Ok(Value::Bool(matches!(args.first(), Some(Value::Str(_)))))
+    });
+    builtin!("is_list", Some(1), |args| {
+        Ok(Value::Bool(matches!(args.first(), Some(Value::List(_)))))
+    });
+    builtin!("is_map", Some(1), |args| {
+        Ok(Value::Bool(matches!(args.first(), Some(Value::Map(_)))))
+    });
+    builtin!("is_bool", Some(1), |args| {
+        Ok(Value::Bool(matches!(args.first(), Some(Value::Bool(_)))))
+    });
+    builtin!("is_nil", Some(1), |args| {
+        Ok(Value::Bool(matches!(args.first(), Some(Value::Nil) | None)))
+    });
+    builtin!("is_func", Some(1), |args| {
+        Ok(Value::Bool(matches!(args.first(), Some(Value::Function(_)) | Some(Value::NativeFunction(_)))))
+    });
+
+    // ── Character helpers ─────────────────────────────────────────────────────
+    builtin!("char_code", Some(1), |args| {
+        match args.first() {
+            Some(Value::Str(s)) => {
+                let c = s.chars().next()
+                    .ok_or_else(|| CocotteError::runtime("char_code() requires a non-empty string"))?;
+                Ok(Value::Number(c as u32 as f64))
+            }
+            _ => Err(CocotteError::type_err("char_code() requires a string")),
+        }
+    });
+    builtin!("code_char", Some(1), |args| {
+        match args.first() {
+            Some(Value::Number(n)) => {
+                let c = char::from_u32(*n as u32)
+                    .ok_or_else(|| CocotteError::runtime("code_char(): invalid code point"))?;
+                Ok(Value::Str(c.to_string()))
+            }
+            _ => Err(CocotteError::type_err("code_char() requires a number")),
+        }
+    });
+
+    // ── Math extras ───────────────────────────────────────────────────────────
+    builtin!("sign", Some(1), |args| {
+        match args.first() {
+            Some(Value::Number(n)) => Ok(Value::Number(if *n == 0.0 { 0.0 } else { n.signum() })),
+            _ => Err(CocotteError::type_err("sign() requires a number")),
+        }
+    });
+    builtin!("clamp", Some(3), |args| {
+        match (&args[0], &args[1], &args[2]) {
+            (Value::Number(v), Value::Number(lo), Value::Number(hi)) =>
+                Ok(Value::Number(v.clamp(*lo, *hi))),
+            _ => Err(CocotteError::type_err("clamp(value, min, max) requires three numbers")),
+        }
+    });
+
+    // ── Collection constructors ───────────────────────────────────────────────
+    builtin!("list_of", None, |args| {
+        Ok(Value::List(Arc::new(Mutex::new(args))))
+    });
+    builtin!("map_of", None, |args| {
+        let mut m = std::collections::HashMap::new();
+        let mut iter = args.into_iter();
+        while let (Some(k), Some(v)) = (iter.next(), iter.next()) {
+            m.insert(k.to_display(), v);
+        }
+        Ok(Value::Map(Arc::new(Mutex::new(m))))
+    });
+
+    // ── Time ──────────────────────────────────────────────────────────────────
+    builtin!("time_now", Some(0), |_| {
+        use std::time::SystemTime;
+        let secs = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        Ok(Value::Number(secs))
+    });
+
+    // ── Assertion ─────────────────────────────────────────────────────────────
+    builtin!("assert", Some(2), |args| {
+        let cond = args.first().map(|v| v.is_truthy()).unwrap_or(false);
+        if !cond {
+            let msg = args.get(1).map(|v| v.to_display())
+                .unwrap_or_else(|| "assertion failed".into());
+            return Err(CocotteError::runtime(&format!("Assertion failed: {}", msg)));
+        }
+        Ok(Value::Nil)
+    });
+    builtin!("assert_eq", Some(2), |args| {
+        let a = args.first().cloned().unwrap_or(Value::Nil);
+        let b = args.get(1).cloned().unwrap_or(Value::Nil);
+        if a != b {
+            return Err(CocotteError::runtime(&format!(
+                "Assertion failed: {} != {}", a.to_repr(), b.to_repr()
+            )));
+        }
+        Ok(Value::Nil)
+    });
+
+    // ── String extras ─────────────────────────────────────────────────────────
+    builtin!("str_join", Some(2), |args| {
+        match (&args[0], &args[1]) {
+            (Value::List(l), Value::Str(sep)) => {
+                let parts: Vec<String> = l.lock().unwrap().iter()
+                    .map(|v| v.to_display()).collect();
+                Ok(Value::Str(parts.join(sep)))
+            }
+            _ => Err(CocotteError::type_err("str_join(list, sep) requires a list and a string")),
+        }
+    });
 }
