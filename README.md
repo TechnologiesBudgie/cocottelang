@@ -25,7 +25,14 @@ greet("World")
 * Cross-platform
 * GUI support (Charlotte)
 * Modules & libraries
+  
+## Status  
+  
+Early development (0.1.0)  
+  
+## License
 
-## Status
+Cocotte is licensed under:
 
-Early development (0.1.0)
+- MIT License
+- Apache License 2.0
