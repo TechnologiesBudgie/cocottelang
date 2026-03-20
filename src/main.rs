@@ -96,10 +96,18 @@ enum Commands {
         out: PathBuf,
     },
 
-    /// Add a module from the registry or a local .cotlib library
+    /// Add a module from the registry or install a local .cotlib / .cotmod file
     Add {
-        /// Module name or path to .cotlib file
+        /// Module name, path to .cotlib file, or path to .cotmod file
         target: String,
+    },
+
+    /// Create a new library (.cotlib) or module (.cotmod) scaffold
+    New {
+        /// What to create: "lib" or "module"
+        kind: String,
+        /// Name of the library or module
+        name: String,
     },
 
     /// Run tests (files ending in _test.cot under tests/)
@@ -161,6 +169,7 @@ fn dispatch(cli: Cli) -> Result<()> {
         Commands::Build { file, os, arch, release, symbols, verbose, out } =>
             cmd_build(&file, &os, &arch, release, symbols, verbose, &out),
         Commands::Add { target }                                 => cmd_add(&target),
+        Commands::New { kind, name }                             => cmd_new(&kind, &name),
         Commands::Test { dir, verbose }                          => cmd_test(&dir, verbose),
         Commands::Clean                                          => cmd_clean(),
         Commands::Package { format }                             => cmd_package(&format),
@@ -282,8 +291,10 @@ fn cmd_build(
 }
 
 fn cmd_add(target: &str) -> Result<()> {
-    if target.ends_with(".cotlib") || Path::new(target).exists() {
-        let path = Path::new(target);
+    let path = Path::new(target);
+
+    if target.ends_with(".cotlib") {
+        // Install a local library
         if !path.exists() {
             return Err(CocotteError::module_err(&format!(
                 "Library file '{}' not found", target
@@ -294,26 +305,198 @@ fn cmd_add(target: &str) -> Result<()> {
         let dest = dest_dir.join(path.file_name().unwrap_or_default());
         fs::copy(path, &dest)?;
         println!("Added library '{}' -> {}", target, dest.display());
-        update_millet_library(target)?;
-    } else {
-        let builtin_modules = ["charlotte", "math", "network", "json", "os"];
-        if builtin_modules.contains(&target) {
-            println!("Module '{}' is built-in. Use it with:", target);
-            println!("  module add \"{}\"", target);
-        } else {
-            // Create a stub .cotmod for non-builtin registry modules
-            let dest_dir = Path::new("modules");
-            fs::create_dir_all(dest_dir)?;
-            let stub = format!(
-                "# Module: {}\n# Replace this stub with the real implementation.\n\nfunc placeholder()\n    print \"Module {} not implemented\"\nend\n",
-                target, target
-            );
-            let dest = dest_dir.join(format!("{}.cotmod", target));
-            fs::write(&dest, stub)?;
-            println!("Created module stub: {}", dest.display());
+        update_millet_library(&dest.display().to_string())?;
+
+    } else if target.ends_with(".cotmod") {
+        // Install a local module
+        if !path.exists() {
+            return Err(CocotteError::module_err(&format!(
+                "Module file '{}' not found", target
+            )));
         }
-        update_millet_module(target)?;
+        let dest_dir = Path::new("modules");
+        fs::create_dir_all(dest_dir)?;
+        let dest = dest_dir.join(path.file_name().unwrap_or_default());
+        fs::copy(path, &dest)?;
+        // Module name is the stem (e.g. "utils" from "utils.cotmod")
+        let mod_name = path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(target);
+        println!("Installed module '{}' -> {}", mod_name, dest.display());
+        println!("Use it with:  module add \"{}\"", mod_name);
+        update_millet_module(mod_name)?;
+
+    } else {
+        // Built-in or unknown name
+        let builtin_modules = ["charlotte", "math", "json", "os", "http", "sqlite"];
+        if builtin_modules.contains(&target) {
+            println!("Module '{}' is built-in — no installation needed.", target);
+            println!("Use it with:  module add \"{}\"", target);
+        } else {
+            return Err(CocotteError::module_err(&format!(
+                "Don't know how to add '{}'.
+                 To add a local library: cocotte add path/to/mylib.cotlib
+                 To add a local module:  cocotte add path/to/mymod.cotmod
+                 To create a new one:    cocotte new lib mylib
+                 To create a new one:    cocotte new module mymod",
+                target
+            )));
+        }
     }
+    Ok(())
+}
+
+fn cmd_new(kind: &str, name: &str) -> Result<()> {
+    match kind {
+        "lib" | "library" => cmd_new_lib(name),
+        "module" | "mod"  => cmd_new_module(name),
+        other => Err(CocotteError::build_err(&format!(
+            "Unknown kind '{}'. Use: cocotte new lib <name>  OR  cocotte new module <name>",
+            other
+        ))),
+    }
+}
+
+fn cmd_new_lib(name: &str) -> Result<()> {
+    // Can be called from inside a project (writes to libraries/) or standalone
+    let in_project = Path::new("Millet.toml").exists();
+    let (_dest_dir, dest_path) = if in_project {
+        let d = PathBuf::from("libraries");
+        fs::create_dir_all(&d)?;
+        let p = d.join(format!("{}.cotlib", name));
+        (d, p)
+    } else {
+        (PathBuf::from("."), PathBuf::from(format!("{}.cotlib", name)))
+    };
+
+    if dest_path.exists() {
+        return Err(CocotteError::build_err(&format!(
+            "'{}' already exists", dest_path.display()
+        )));
+    }
+
+    let content = format!(r#"# {name}.cotlib — Cocotte library
+# Loaded with:  library add "libraries/{name}.cotlib"
+# Called as:    {name}.function_name(args)
+
+# ── Public functions ──────────────────────────────────────────────────────────
+
+# Example function — replace or delete this.
+func hello(who)
+    return "Hello from {name}, " + who + "!"
+end
+
+# Add more functions below.
+# Every top-level function defined here becomes part of the {name} namespace.
+"#);
+
+    fs::write(&dest_path, content)?;
+    println!("Created library: {}", dest_path.display());
+
+    if in_project {
+        update_millet_library(&format!("libraries/{}.cotlib", name))?;
+        println!("Registered in Millet.toml.");
+        println!();
+        println!("Use in your .cot files:");
+        println!("  library add \"libraries/{}.cotlib\"", name);
+        println!("  {}.hello(\"World\")", name);
+    } else {
+        println!();
+        println!("To use in a project:");
+        println!("  cocotte add {}.cotlib", name);
+        println!("Or reference directly:");
+        println!("  library add \"/path/to/{}.cotlib\"", name);
+    }
+    Ok(())
+}
+
+fn cmd_new_module(name: &str) -> Result<()> {
+    // Modules are standalone directories so they can be distributed
+    let mod_dir = PathBuf::from(name);
+    if mod_dir.exists() {
+        return Err(CocotteError::build_err(&format!(
+            "Directory '{}' already exists", name
+        )));
+    }
+
+    let mod_file  = mod_dir.join(format!("{}.cotmod", name));
+    let test_file = mod_dir.join(format!("{}_test.cot", name));
+    let readme    = mod_dir.join("README.md");
+
+    fs::create_dir_all(&mod_dir)?;
+
+    // Module source
+    fs::write(&mod_file, format!(r#"# {name}.cotmod — Cocotte module
+# Installed with:  cocotte add {name}/{name}.cotmod
+# Loaded with:     module add "{name}"
+# Called as:       {name}.function_name(args)
+
+# ── Public functions ──────────────────────────────────────────────────────────
+
+# Example function — replace or delete this.
+func hello(who)
+    return "Hello from {name}, " + who + "!"
+end
+
+# Add more functions and classes below.
+# Every top-level definition becomes part of the {name} namespace.
+"#))?;
+
+    // Test file
+    fs::write(&test_file, format!(r#"# {name}_test.cot — tests for {name} module
+# Run with: cocotte test
+
+module add "{name}"
+
+assert_eq({name}.hello("World"), "Hello from {name}, World!")
+
+print "All {name} tests passed."
+"#))?;
+
+    // README
+    fs::write(&readme, format!(r#"# {name}
+
+A Cocotte module.
+
+## Installation
+
+Copy `{name}.cotmod` into the `modules/` directory of your project:
+
+```sh
+cocotte add {name}/{name}.cotmod
+```
+
+Or from within the module directory:
+
+```sh
+cocotte add {name}.cotmod
+```
+
+## Usage
+
+```cocotte
+module add "{name}"
+
+print {name}.hello("World")
+```
+
+## Development
+
+```sh
+# Run tests
+cocotte test {name}_test.cot
+```
+"#))?;
+
+    println!("Created module scaffold: {}/", name);
+    println!("  {}/{}.cotmod   — module source", name, name);
+    println!("  {}/{}_test.cot — tests", name, name);
+    println!("  {}/README.md", name);
+    println!();
+    println!("Edit {}/{}.cotmod, then install into a project with:", name, name);
+    println!("  cocotte add {}/{}.cotmod", name, name);
+    println!("Then use it:");
+    println!("  module add \"{}\"", name);
     Ok(())
 }
 

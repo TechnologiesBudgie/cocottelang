@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use crate::value::{Value, NativeFunction};
 use crate::error::{CocotteError, Result};
+use rusqlite::Connection;
 
 /// Load a built-in or file-based module by name
 /// Returns a Value::Module containing the module's namespace
@@ -15,7 +16,9 @@ pub fn load_module(name: &str, project_root: &Path) -> Result<Value> {
         "math" => Ok(make_math_module()),
         "network" => Ok(make_network_stub_module()),
         "json" => Ok(make_json_module()),
-        "os" => Ok(make_os_module()),
+        "os"     => Ok(make_os_module()),
+        "http"   => Ok(make_http_module()),
+        "sqlite" => Ok(make_sqlite_module()),
         _ => {
             // Try to load from modules/ directory
             let mod_path = project_root.join("modules").join(format!("{}.cotmod", name));
@@ -315,6 +318,319 @@ fn make_os_module() -> Value {
             std::env::current_dir()
                 .map(|p| Value::Str(p.display().to_string()))
                 .map_err(|e| CocotteError::io_err(&e.to_string()))
+        }),
+    }));
+
+    Value::Module(Arc::new(Mutex::new(ns)))
+}
+
+// ── HTTP module ──────────────────────────────────────────────────────────────
+// Uses ureq (pure-Rust, no libcurl dependency, bundled TLS).
+
+fn make_http_module() -> Value {
+    let mut ns: HashMap<String, Value> = HashMap::new();
+
+    // http.get(url) -> string
+    // http.get(url, headers_map) -> string
+    ns.insert("get".into(), Value::NativeFunction(NativeFunction {
+        name: "http.get".into(),
+        arity: None,
+        func: Arc::new(|args| {
+            let url = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("http.get(url) requires a string URL")),
+            };
+            let mut req = ureq::get(&url);
+            if let Some(Value::Map(m)) = args.get(1) {
+                let m = m.lock().unwrap();
+                for (k, v) in m.iter() {
+                    req = req.set(k, &v.to_display());
+                }
+            }
+            req.call()
+                .map_err(|e| CocotteError::runtime(&format!("http.get failed: {}", e)))?
+                .into_string()
+                .map(Value::Str)
+                .map_err(|e| CocotteError::runtime(&format!("http.get read failed: {}", e)))
+        }),
+    }));
+
+    // http.post(url, body_string) -> string
+    // http.post(url, body_string, headers_map) -> string
+    ns.insert("post".into(), Value::NativeFunction(NativeFunction {
+        name: "http.post".into(),
+        arity: None,
+        func: Arc::new(|args| {
+            let url = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("http.post(url, body) requires a string URL")),
+            };
+            let body = args.get(1).map(|v| v.to_display()).unwrap_or_default();
+            let mut req = ureq::post(&url);
+            if let Some(Value::Map(m)) = args.get(2) {
+                let m = m.lock().unwrap();
+                for (k, v) in m.iter() {
+                    req = req.set(k, &v.to_display());
+                }
+            }
+            req.send_string(&body)
+                .map_err(|e| CocotteError::runtime(&format!("http.post failed: {}", e)))?
+                .into_string()
+                .map(Value::Str)
+                .map_err(|e| CocotteError::runtime(&format!("http.post read failed: {}", e)))
+        }),
+    }));
+
+    // http.post_json(url, value) -> string
+    ns.insert("post_json".into(), Value::NativeFunction(NativeFunction {
+        name: "http.post_json".into(),
+        arity: None,
+        func: Arc::new(|args| {
+            let url = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("http.post_json(url, value) requires a string URL")),
+            };
+            let body_val = args.get(1).cloned().unwrap_or(Value::Nil);
+            let json_body = cocotte_to_json(&body_val);
+            let body_str = serde_json::to_string(&json_body)
+                .map_err(|e| CocotteError::runtime(&format!("JSON serialise error: {}", e)))?;
+            ureq::post(&url)
+                .set("Content-Type", "application/json")
+                .send_string(&body_str)
+                .map_err(|e| CocotteError::runtime(&format!("http.post_json failed: {}", e)))?
+                .into_string()
+                .map(Value::Str)
+                .map_err(|e| CocotteError::runtime(&format!("http.post_json read failed: {}", e)))
+        }),
+    }));
+
+    // http.put(url, body) -> string
+    ns.insert("put".into(), Value::NativeFunction(NativeFunction {
+        name: "http.put".into(),
+        arity: None,
+        func: Arc::new(|args| {
+            let url = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("http.put(url, body) requires a string URL")),
+            };
+            let body = args.get(1).map(|v| v.to_display()).unwrap_or_default();
+            ureq::put(&url)
+                .send_string(&body)
+                .map_err(|e| CocotteError::runtime(&format!("http.put failed: {}", e)))?
+                .into_string()
+                .map(Value::Str)
+                .map_err(|e| CocotteError::runtime(&format!("http.put read failed: {}", e)))
+        }),
+    }));
+
+    // http.delete(url) -> string
+    ns.insert("delete".into(), Value::NativeFunction(NativeFunction {
+        name: "http.delete".into(),
+        arity: None,
+        func: Arc::new(|args| {
+            let url = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("http.delete(url) requires a string URL")),
+            };
+            ureq::delete(&url)
+                .call()
+                .map_err(|e| CocotteError::runtime(&format!("http.delete failed: {}", e)))?
+                .into_string()
+                .map(Value::Str)
+                .map_err(|e| CocotteError::runtime(&format!("http.delete read failed: {}", e)))
+        }),
+    }));
+
+    // http.get_json(url) -> parsed Cocotte value
+    ns.insert("get_json".into(), Value::NativeFunction(NativeFunction {
+        name: "http.get_json".into(),
+        arity: None,
+        func: Arc::new(|args| {
+            let url = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("http.get_json(url) requires a string URL")),
+            };
+            let mut req = ureq::get(&url);
+            if let Some(Value::Map(m)) = args.get(1) {
+                let m = m.lock().unwrap();
+                for (k, v) in m.iter() {
+                    req = req.set(k, &v.to_display());
+                }
+            }
+            let text = req
+                .call()
+                .map_err(|e| CocotteError::runtime(&format!("http.get_json failed: {}", e)))?
+                .into_string()
+                .map_err(|e| CocotteError::runtime(&format!("http.get_json read failed: {}", e)))?;
+            let v: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|e| CocotteError::runtime(&format!("JSON parse error: {}", e)))?;
+            Ok(json_to_cocotte(v))
+        }),
+    }));
+
+    Value::Module(Arc::new(Mutex::new(ns)))
+}
+
+// ── SQLite module ─────────────────────────────────────────────────────────────
+// Uses rusqlite with the "bundled" feature — no system SQLite needed.
+//
+// Connections are stored as a string path. Each operation opens the DB,
+// runs the command, and closes it. This is simple and safe for scripts.
+// For heavy use, cache the connection in a var between calls.
+
+fn make_sqlite_module() -> Value {
+    let mut ns: HashMap<String, Value> = HashMap::new();
+
+    // sqlite.open(path) -> db handle (stored as a string path)
+    // The "handle" is just the path string — the module uses it to reopen.
+    ns.insert("open".into(), Value::NativeFunction(NativeFunction {
+        name: "sqlite.open".into(),
+        arity: Some(1),
+        func: Arc::new(|args| {
+            let path = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.open(path) requires a string")),
+            };
+            // Validate that we can open it
+            Connection::open(&path)
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.open failed: {}", e)))?;
+            Ok(Value::Str(path))
+        }),
+    }));
+
+    // sqlite.exec(db, sql) -> nil
+    // For CREATE TABLE, INSERT, UPDATE, DELETE — no return value.
+    ns.insert("exec".into(), Value::NativeFunction(NativeFunction {
+        name: "sqlite.exec".into(),
+        arity: Some(2),
+        func: Arc::new(|args| {
+            let path = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.exec(db, sql) — db must be a string path")),
+            };
+            let sql = match args.get(1) {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.exec(db, sql) — sql must be a string")),
+            };
+            let conn = Connection::open(&path)
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.exec open failed: {}", e)))?;
+            conn.execute_batch(&sql)
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.exec failed: {}", e)))?;
+            Ok(Value::Nil)
+        }),
+    }));
+
+    // sqlite.query(db, sql) -> list of maps
+    // Each row is a map of { column_name: value }.
+    ns.insert("query".into(), Value::NativeFunction(NativeFunction {
+        name: "sqlite.query".into(),
+        arity: Some(2),
+        func: Arc::new(|args| {
+            let path = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.query(db, sql) — db must be a string path")),
+            };
+            let sql = match args.get(1) {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.query(db, sql) — sql must be a string")),
+            };
+            let conn = Connection::open(&path)
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.query open failed: {}", e)))?;
+            let mut stmt = conn.prepare(&sql)
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.query prepare failed: {}", e)))?;
+            let col_names: Vec<String> = stmt.column_names()
+                .into_iter().map(|s| s.to_string()).collect();
+            let rows_iter = stmt.query_map([], |row| {
+                let mut map: HashMap<String, Value> = HashMap::new();
+                for (i, col) in col_names.iter().enumerate() {
+                    let val: rusqlite::types::Value = row.get(i).unwrap_or(rusqlite::types::Value::Null);
+                    let cv = match val {
+                        rusqlite::types::Value::Null        => Value::Nil,
+                        rusqlite::types::Value::Integer(n)  => Value::Number(n as f64),
+                        rusqlite::types::Value::Real(f)     => Value::Number(f),
+                        rusqlite::types::Value::Text(s)     => Value::Str(s),
+                        rusqlite::types::Value::Blob(b)     => Value::Str(
+                            b.iter().map(|byte| format!("{:02x}", byte)).collect()
+                        ),
+                    };
+                    map.insert(col.clone(), cv);
+                }
+                Ok(map)
+            }).map_err(|e| CocotteError::runtime(&format!("sqlite.query execute failed: {}", e)))?;
+
+            let mut results: Vec<Value> = Vec::new();
+            for row in rows_iter {
+                let map = row.map_err(|e| CocotteError::runtime(&format!("sqlite.query row error: {}", e)))?;
+                results.push(Value::Map(Arc::new(Mutex::new(map))));
+            }
+            Ok(Value::List(Arc::new(Mutex::new(results))))
+        }),
+    }));
+
+    // sqlite.query_one(db, sql) -> map or nil
+    ns.insert("query_one".into(), Value::NativeFunction(NativeFunction {
+        name: "sqlite.query_one".into(),
+        arity: Some(2),
+        func: Arc::new(|args| {
+            let path = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.query_one(db, sql) — db must be a string path")),
+            };
+            let sql = match args.get(1) {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.query_one(db, sql) — sql must be a string")),
+            };
+            let conn = Connection::open(&path)
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.query_one open failed: {}", e)))?;
+            let mut stmt = conn.prepare(&sql)
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.query_one prepare failed: {}", e)))?;
+            let col_names: Vec<String> = stmt.column_names()
+                .into_iter().map(|s| s.to_string()).collect();
+            let mut rows = stmt.query([])
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.query_one execute failed: {}", e)))?;
+            match rows.next().map_err(|e| CocotteError::runtime(&format!("sqlite.query_one row error: {}", e)))? {
+                None => Ok(Value::Nil),
+                Some(row) => {
+                    let mut map: HashMap<String, Value> = HashMap::new();
+                    for (i, col) in col_names.iter().enumerate() {
+                        let val: rusqlite::types::Value = row.get(i).unwrap_or(rusqlite::types::Value::Null);
+                        let cv = match val {
+                            rusqlite::types::Value::Null        => Value::Nil,
+                            rusqlite::types::Value::Integer(n)  => Value::Number(n as f64),
+                            rusqlite::types::Value::Real(f)     => Value::Number(f),
+                            rusqlite::types::Value::Text(s)     => Value::Str(s),
+                            rusqlite::types::Value::Blob(b)     => Value::Str(
+                                b.iter().map(|byte| format!("{:02x}", byte)).collect()
+                            ),
+                        };
+                        map.insert(col.clone(), cv);
+                    }
+                    Ok(Value::Map(Arc::new(Mutex::new(map))))
+                }
+            }
+        }),
+    }));
+
+    // sqlite.tables(db) -> list of table name strings
+    ns.insert("tables".into(), Value::NativeFunction(NativeFunction {
+        name: "sqlite.tables".into(),
+        arity: Some(1),
+        func: Arc::new(|args| {
+            let path = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.tables(db) requires a db path")),
+            };
+            let conn = Connection::open(&path)
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.tables open failed: {}", e)))?;
+            let mut stmt = conn.prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            ).map_err(|e| CocotteError::runtime(&format!("sqlite.tables prepare failed: {}", e)))?;
+            let names: std::result::Result<Vec<Value>, _> = stmt.query_map([], |row| {
+                row.get::<_, String>(0)
+            }).map_err(|e| CocotteError::runtime(&format!("sqlite.tables execute failed: {}", e)))?
+            .map(|r| r.map(Value::Str).map_err(|e| CocotteError::runtime(&format!("sqlite.tables row error: {}", e))))
+            .collect();
+            Ok(Value::List(Arc::new(Mutex::new(names?))))
         }),
     }));
 
