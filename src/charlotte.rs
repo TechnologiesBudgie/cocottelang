@@ -107,7 +107,13 @@ pub fn run_window(
                 ACTIVE_INTERP.with(|p| *p.borrow_mut() = interp_ptr);
 
                 let ui_obj = make_ui_object();
-                let _ = call_draw_fn(&self.draw_fn, ui_obj);
+                if let Err(e) = call_draw_fn(&self.draw_fn, ui_obj) {
+                    if !e.is_signal() {
+                        eprintln!("[charlotte] draw error: {}", e);
+                        ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
+                    }
+                }
+                ctx.request_repaint();
 
                 EGUI_UI.with(      |p| *p.borrow_mut() = 0);
                 GUI_STATE.with(    |p| *p.borrow_mut() = 0);
@@ -125,9 +131,8 @@ pub fn run_window(
         interp:  app_interp,
     };
 
-    // Use wgpu renderer — more reliable than glow on Linux (Wayland + X11),
-    // avoids the black-window issue caused by missing OpenGL drivers or
-    // compositor-level GL compositing problems.
+    // Use wgpu renderer — more reliable than glow on Linux (Wayland + X11).
+    // Glow (OpenGL) silently renders a black window on many Linux setups.
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(title)
@@ -440,15 +445,16 @@ fn make_ui_object() -> Value {
 
     // ── Toggles / selectors ───────────────────────────────────────────────
 
-    // ui.checkbox(key, label) -> bool
-    m.insert("checkbox".into(), nfn("ui.checkbox", Some(2), |args| {
-        let key   = args.first().map(|v| v.to_display()).unwrap_or_else(|| "__cb".into());
-        let label = args.get(1).map(|v| v.to_display()).unwrap_or_default();
+    // ui.checkbox(key, label [, default]) -> bool
+    m.insert("checkbox".into(), nfn("ui.checkbox", None, |args| {
+        let key     = args.first().map(|v| v.to_display()).unwrap_or_else(|| "__cb".into());
+        let label   = args.get(1).map(|v| v.to_display()).unwrap_or_default();
+        let default = match args.get(2) { Some(Value::Bool(b)) => *b, _ => false };
         let result = with_state(|s| {
-            let val = s.checkboxes.entry(key.clone()).or_insert(false);
+            let val = s.checkboxes.entry(key.clone()).or_insert(default);
             with_ui(|ui| { ui.checkbox(val, &label); });
             *val
-        }).unwrap_or(false);
+        }).unwrap_or(default);
         Ok(Value::Bool(result))
     }));
 
@@ -475,19 +481,20 @@ fn make_ui_object() -> Value {
         Ok(Value::Str(val))
     }));
 
-    // ui.slider(key, label, min, max) -> number
-    m.insert("slider".into(), nfn("ui.slider", Some(4), |args| {
-        let key   = args.first().map(|v| v.to_display()).unwrap_or_else(|| "__sl".into());
-        let label = args.get(1).map(|v| v.to_display()).unwrap_or_default();
-        let min   = match args.get(2) { Some(Value::Number(n)) => *n, _ => 0.0 };
-        let max   = match args.get(3) { Some(Value::Number(n)) => *n, _ => 100.0 };
+    // ui.slider(key, label, min, max [, default]) -> number
+    m.insert("slider".into(), nfn("ui.slider", None, |args| {
+        let key     = args.first().map(|v| v.to_display()).unwrap_or_else(|| "__sl".into());
+        let label   = args.get(1).map(|v| v.to_display()).unwrap_or_default();
+        let min     = match args.get(2) { Some(Value::Number(n)) => *n, _ => 0.0 };
+        let max     = match args.get(3) { Some(Value::Number(n)) => *n, _ => 100.0 };
+        let default = match args.get(4) { Some(Value::Number(n)) => *n, _ => min };
         let result = with_state(|s| {
-            let val = s.sliders.entry(key.clone()).or_insert(min);
+            let val = s.sliders.entry(key.clone()).or_insert(default);
             with_ui(|ui| {
                 ui.add(egui::Slider::new(val, min..=max).text(&label));
             });
             *val
-        }).unwrap_or(min);
+        }).unwrap_or(default);
         Ok(Value::Number(result))
     }));
 
@@ -510,7 +517,7 @@ fn make_ui_object() -> Value {
         Ok(Value::Number(h as f64))
     }));
 
-    Value::Map(Arc::new(Mutex::new(m)))
+    Value::Module(Arc::new(Mutex::new(m)))
 }
 
 // ── Helpers (always compiled) ─────────────────────────────────────────────────
