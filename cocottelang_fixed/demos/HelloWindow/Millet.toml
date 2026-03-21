@@ -1,8 +1,0 @@
-[project]
-name    = "HelloWindow"
-version = "0.1.0"
-author  = "You"
-
-[dependencies]
-modules   = ["charlotte"]
-libraries = []
