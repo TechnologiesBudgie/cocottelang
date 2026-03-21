@@ -277,12 +277,6 @@ fn build_for_target(
     let rt_src  = locate_runtime_src();
     let tmp_dir = std::env::temp_dir()
         .join(format!("cocotte_build_{}_{}", opts.project_name, label));
-
-    // Always start from a clean slate — a leftover temp dir from a previous
-    // build can contain stale source files that cause phantom compile errors.
-    if tmp_dir.exists() {
-        fs::remove_dir_all(&tmp_dir)?;
-    }
     fs::create_dir_all(&tmp_dir)?;
 
     if opts.verbose {
