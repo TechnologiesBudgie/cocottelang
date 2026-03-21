@@ -1,0 +1,8 @@
+[project]
+name = "CocotteDemo"
+version = "0.1.0"
+author = "You"
+
+[dependencies]
+modules = ["json", "math", "os"]
+libraries = ["utils.cotlib"]

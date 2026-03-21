@@ -1,0 +1,191 @@
+# src/files_demo.cot — File I/O demo
+# Run with: cocotte exec run-files
+
+module add "json"
+module add "os"
+
+print "==============================="
+print "  File I/O Demo"
+print "==============================="
+print ""
+
+var base = "/tmp/cocotte_demo_"
+
+# ── Basic read / write ────────────────────────────────────────────────────────
+print "--- Read / Write ---"
+
+var file1 = base + "hello.txt"
+write_file(file1, "Hello from Cocotte!\n")
+append_file(file1, "Second line\n")
+append_file(file1, "Third line\n")
+
+var content = read_file(file1)
+print "File content:"
+for line in content.split_lines()
+    if not line.is_empty()
+        print "  | " + line
+    end
+end
+print "Size: " + file_size(file1) + " bytes"
+print ""
+
+# ── Directory operations ──────────────────────────────────────────────────────
+print "--- Directories ---"
+
+var dir1 = base + "dir"
+var dir2 = base + "dir/subdir"
+make_dir(dir2)
+
+print "is_dir(dir1): "  + is_dir(dir1)
+print "is_file(dir1): " + is_file(dir1)
+
+write_file(dir1 + "/a.txt", "file a")
+write_file(dir1 + "/b.txt", "file b")
+write_file(dir1 + "/c.txt", "file c")
+write_file(dir2 + "/d.txt", "file d")
+
+var files = list_dir(dir1)
+files.sort()
+print "Contents of dir:"
+for f in files
+    print "  " + f
+end
+print ""
+
+# ── Copy & rename ─────────────────────────────────────────────────────────────
+print "--- Copy & Rename ---"
+
+var src  = base + "original.txt"
+var copy = base + "copy.txt"
+var ren  = base + "renamed.txt"
+
+write_file(src, "original content")
+copy_file(src, copy)
+print "copy exists: " + file_exists(copy)
+print "copy content: " + read_file(copy)
+
+rename_file(copy, ren)
+print "copy gone after rename: " + (not file_exists(copy))
+print "renamed exists: " + file_exists(ren)
+print ""
+
+# ── JSON data files ───────────────────────────────────────────────────────────
+print "--- JSON Data File ---"
+
+var data = {
+    "app":     "CocotteDemo",
+    "version": 1,
+    "scores":  [98, 87, 92, 76, 100],
+    "config":  {"debug": false, "max_items": 50}
+}
+
+var json_file = base + "data.json"
+write_file(json_file, json.stringify(data))
+
+var loaded = json.parse(read_file(json_file))
+print "app:         " + loaded.get("app")
+print "version:     " + loaded.get("version")
+print "best score:  " + loaded.get("scores").reduce(func(a,x) return max(a,x) end, 0)
+print "debug:       " + loaded.get("config").get("debug")
+print ""
+
+# ── CSV-style data ────────────────────────────────────────────────────────────
+print "--- CSV Data ---"
+
+var csv_file = base + "people.csv"
+write_file(csv_file, "name,age,city\nAlice,9,Paris\nBob,10,London\nClara,8,Tokyo\n")
+
+var csv_text = read_file(csv_file)
+var rows = csv_text.split_lines().filter(func(l) return not l.trim().is_empty() end)
+var headers = rows.get(0).split(",")
+print "Headers: " + headers.join(" | ")
+
+var i = 1
+while i < rows.len()
+    var cells = rows.get(i).split(",")
+    var j = 0
+    var parts = []
+    while j < headers.len()
+        parts.push(headers.get(j) + "=" + cells.get(j))
+        j = j + 1
+    end
+    print parts.join("  ")
+    i = i + 1
+end
+print ""
+
+# ── Config file (ini-style) ───────────────────────────────────────────────────
+print "--- Config File ---"
+
+var cfg_file = base + "config.ini"
+write_file(cfg_file, "# App config\nhost = localhost\nport = 8080\ndebug = true\nmax_conn = 100\n")
+
+var config = {}
+for line in read_file(cfg_file).split_lines()
+    var trimmed = line.trim()
+    if trimmed.is_empty() or trimmed.starts_with("#")
+        continue
+    end
+    var parts = trimmed.split("=")
+    if parts.len() >= 2
+        var key = parts.get(0).trim()
+        var val = parts.get(1).trim()
+        config.set(key, val)
+    end
+end
+
+print "host: "     + config.get("host")
+print "port: "     + config.get("port")
+print "debug: "    + config.get("debug")
+print "max_conn: " + config.get("max_conn")
+print ""
+
+# ── Log file ──────────────────────────────────────────────────────────────────
+print "--- Log File ---"
+
+var log_file = base + "app.log"
+try
+    delete_file(log_file)
+catch err
+    # file may not exist yet, that is fine
+end
+
+func log(level, msg)
+    var entry = "[" + level + "] " + msg + "\n"
+    append_file(log_file, entry)
+end
+
+log("INFO",  "Application started")
+log("INFO",  "Loading configuration")
+log("WARN",  "Config file not found, using defaults")
+log("INFO",  "Server listening on port 8080")
+log("ERROR", "Failed to connect to database")
+log("INFO",  "Using in-memory fallback")
+
+print "Log contents:"
+for line in read_file(log_file).split_lines()
+    if not line.is_empty()
+        print "  " + line
+    end
+end
+print ""
+
+# ── OS module ────────────────────────────────────────────────────────────────
+print "--- OS Module ---"
+print "platform: " + os.platform()
+print "cwd: " + os.cwd()
+print ""
+
+# ── Cleanup ───────────────────────────────────────────────────────────────────
+print "--- Cleanup ---"
+delete_file(file1)
+delete_file(dir1)
+delete_file(src)
+delete_file(ren)
+delete_file(json_file)
+delete_file(csv_file)
+delete_file(cfg_file)
+delete_file(log_file)
+print "Temp files cleaned up."
+print ""
+print "Files demo done!"

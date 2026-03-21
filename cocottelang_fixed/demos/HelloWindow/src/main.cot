@@ -1,0 +1,52 @@
+# HelloWindow — minimal Charlotte GUI example
+
+module add "charlotte"
+
+# State lives outside the callback so it survives between frames.
+var state = {
+    "clicks": 0,
+    "name":   ""
+}
+
+charlotte.window("Hello, Cocotte!", 480, 320, func(ui)
+
+    ui.heading("Hello, World!")
+    ui.separator()
+    ui.space()
+
+    # Personalised greeting
+    var name = ui.input("name_input", "Enter your name...")
+    state.set("name", name)
+
+    if name != ""
+        ui.label("Hello, " + name + "!")
+    else
+        ui.label("Type your name above.")
+    end
+
+    ui.space()
+    ui.separator()
+    ui.space()
+
+    # Click counter
+    ui.label("Button clicks: " + state.get("clicks"))
+
+    if ui.button("Click me")
+        state.set("clicks", state.get("clicks") + 1)
+    end
+
+    if state.get("clicks") > 0
+        if ui.small_button("Reset")
+            state.set("clicks", 0)
+        end
+    end
+
+    ui.space()
+    ui.separator()
+
+    # Window size info
+    var w = ui.available_width()
+    var h = ui.available_height()
+    ui.colored_label("gray", "Window: " + w + " x " + h)
+
+end)
