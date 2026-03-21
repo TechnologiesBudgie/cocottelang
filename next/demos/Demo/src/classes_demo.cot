@@ -1,0 +1,192 @@
+# src/classes_demo.cot — OOP demo
+# Run with: cocotte exec run-classes
+
+print "==============================="
+print "  Classes & Objects Demo"
+print "==============================="
+print ""
+
+# ── Basic class ───────────────────────────────────────────────────────────────
+print "--- Animal ---"
+
+class Animal
+    func init(name, sound, legs)
+        self.name  = name
+        self.sound = sound
+        self.legs  = legs
+    end
+    func speak()
+        print self.name + " says " + self.sound + "!"
+    end
+    func describe()
+        print self.name + " has " + self.legs + " legs"
+    end
+end
+
+var cat = Animal("Cat", "meow", 4)
+var dog = Animal("Dog", "woof", 4)
+var bird = Animal("Bird", "tweet", 2)
+cat.speak()
+dog.speak()
+bird.speak()
+bird.describe()
+print ""
+
+# ── Class with methods calling other methods ──────────────────────────────────
+print "--- Vector2D ---"
+
+class Vector2D
+    func init(x, y)
+        self.x = x
+        self.y = y
+    end
+    func length()
+        return sqrt(self.x * self.x + self.y * self.y)
+    end
+    func dot(other)
+        return self.x * other.x + self.y * other.y
+    end
+    func normalize()
+        var len = self.length()
+        var nx = divide self.x by len
+        var ny = divide self.y by len
+        return Vector2D(nx, ny)
+    end
+    func to_string()
+        return "(" + format_number(self.x, 2) + ", " + format_number(self.y, 2) + ")"
+    end
+    func plus(other)
+        return Vector2D(self.x + other.x, self.y + other.y)
+    end
+    func scale(factor)
+        return Vector2D(self.x * factor, self.y * factor)
+    end
+end
+
+var v1 = Vector2D(3, 4)
+var v2 = Vector2D(1, 2)
+print "v1 = " + v1.to_string()
+print "v2 = " + v2.to_string()
+print "v1 length = " + v1.length()
+print "v1 + v2 = " + v1.plus(v2).to_string()
+print "v1 * 2 = " + v1.scale(2).to_string()
+print "dot product = " + v1.dot(v2)
+var norm = v1.normalize()
+print "v1 normalized = " + norm.to_string()
+print "normalized length = " + format_number(norm.length(), 4)
+print ""
+
+# ── Data structure class ──────────────────────────────────────────────────────
+print "--- Linked List ---"
+
+class Node
+    func init(value)
+        self.value = value
+        self.next  = nil
+    end
+end
+
+class LinkedList
+    func init()
+        self.head = nil
+        self.size = 0
+    end
+    func push_front(value)
+        var node = Node(value)
+        node.next = self.head
+        self.head = node
+        self.size = self.size + 1
+    end
+    func to_list()
+        var result = []
+        var current = self.head
+        while current != nil
+            result.push(current.value)
+            current = current.next
+        end
+        return result
+    end
+    func contains(value)
+        var current = self.head
+        while current != nil
+            if current.value == value
+                return true
+            end
+            current = current.next
+        end
+        return false
+    end
+end
+
+var ll = LinkedList()
+ll.push_front(3)
+ll.push_front(2)
+ll.push_front(1)
+print "linked list: " + ll.to_list().join(" -> ")
+print "size: " + ll.size
+print "contains 2: " + ll.contains(2)
+print "contains 5: " + ll.contains(5)
+print ""
+
+# ── Class as state machine ─────────────────────────────────────────────────────
+print "--- Traffic Light (State Machine) ---"
+
+class TrafficLight
+    func init()
+        self.states = ["red", "green", "yellow"]
+        self.index  = 0
+    end
+    func current()
+        return self.states.get(self.index)
+    end
+    func next()
+        self.index = (self.index + 1) % self.states.len()
+        return self.current()
+    end
+    func can_go()
+        return self.current() == "green"
+    end
+end
+
+var light = TrafficLight()
+var step = 0
+while step < 6
+    print "Light: " + light.current() + "  →  go? " + light.can_go()
+    light.next()
+    step = step + 1
+end
+print ""
+
+# ── Class storing functions ────────────────────────────────────────────────────
+print "--- Event System ---"
+
+class EventBus
+    func init()
+        self.handlers = {}
+    end
+    func on(event, handler)
+        if not self.handlers.has_key(event)
+            self.handlers.set(event, [])
+        end
+        self.handlers.get(event).push(handler)
+    end
+    func emit(event, data)
+        if self.handlers.has_key(event)
+            for handler in self.handlers.get(event)
+                handler(data)
+            end
+        end
+    end
+end
+
+var bus = EventBus()
+bus.on("greet", func(name) print "Hello, " + name + "!" end)
+bus.on("greet", func(name) print "Bonjour, " + name + "!" end)
+bus.on("bye",   func(name) print "Goodbye, " + name + "." end)
+
+bus.emit("greet", "Alice")
+bus.emit("greet", "Bob")
+bus.emit("bye",   "Alice")
+print ""
+
+print "Classes demo done!"
