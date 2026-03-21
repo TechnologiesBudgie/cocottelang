@@ -5,7 +5,7 @@ Cocotte is a beginner-friendly, powerful programming language designed to actual
 ## Install
 
 ```bash
-curl -fsSL https://cocotte-lang.pages.dev/install.sh | sudo sh
+curl -fsSL https://cocotte-lang.pages.dev/install.sh | sudo bash
 ````
 
 ## Example
