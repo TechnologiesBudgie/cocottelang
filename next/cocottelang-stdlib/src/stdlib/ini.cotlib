@@ -1,0 +1,59 @@
+# ini — INI/config file parser
+
+# Parse an INI string into a map of {section: {key: value}}.
+func parse(text)
+    var result  = {}
+    var section = "default"
+    result.set(section, {})
+    for line in text.split_lines()
+        var trimmed = line.trim()
+        if trimmed == "" or trimmed.starts_with(";") or trimmed.starts_with("#")
+            continue
+        end
+        if trimmed.starts_with("[") and trimmed.ends_with("]")
+            section = trimmed.slice(1, trimmed.len() - 1).trim()
+            if not result.has_key(section)
+                result.set(section, {})
+            end
+        elif trimmed.contains("=")
+            var eq  = trimmed.index_of("=")
+            var key = trimmed.slice(0, eq).trim()
+            var val = trimmed.slice(eq + 1, trimmed.len()).trim()
+            result.get(section).set(key, val)
+        end
+    end
+    return result
+end
+
+# Read and parse an INI file.
+func read(path)
+    if not file_exists(path) return {} end
+    return parse(read_file(path))
+end
+
+# Get a value from parsed INI data.
+func get(data, section, key, default_val)
+    if not data.has_key(section) return default_val end
+    var sec = data.get(section)
+    if not sec.has_key(key) return default_val end
+    return sec.get(key)
+end
+
+# Serialize a map-of-maps back to INI format.
+func stringify(data)
+    var lines = []
+    for section in data.keys()
+        lines.push("[" + section + "]")
+        var sec = data.get(section)
+        for key in sec.keys()
+            lines.push(key + " = " + to_string(sec.get(key)))
+        end
+        lines.push("")
+    end
+    return lines.join("\n")
+end
+
+# Write a map-of-maps to an INI file.
+func write(path, data)
+    write_file(path, stringify(data))
+end

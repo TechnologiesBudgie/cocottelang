@@ -1,0 +1,54 @@
+# state — Simple reactive state management
+
+class Store
+    func init(initial)
+        self.state = initial
+        self.listeners = []
+        self.history   = [initial]
+    end
+
+    func get_state() return self.state end
+
+    func set(new_state)
+        self.history.push(new_state)
+        self.state = new_state
+        for listener in self.listeners
+            listener(new_state)
+        end
+    end
+
+    func update(key, value)
+        self.state.set(key, value)
+        for listener in self.listeners
+            listener(self.state)
+        end
+    end
+
+    func subscribe(fn)
+        self.listeners.push(fn)
+    end
+
+    func undo()
+        if self.history.len() > 1
+            self.history.pop()
+            self.state = self.history.last()
+            for listener in self.listeners
+                listener(self.state)
+            end
+        end
+    end
+
+    func history_len()
+        return self.history.len()
+    end
+
+    func reset(initial)
+        self.state = initial
+        self.history = [initial]
+        for listener in self.listeners
+            listener(initial)
+        end
+    end
+end
+
+func create(initial) return Store(initial) end

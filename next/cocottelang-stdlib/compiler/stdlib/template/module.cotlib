@@ -1,0 +1,51 @@
+# template — Simple string templating ({{key}} substitution)
+
+# Render a template string with a variables map.
+# Replaces {{key}} with the corresponding value.
+func render(tmpl, vars)
+    var result = tmpl
+    for key in vars.keys()
+        var placeholder = "{{" + key + "}}"
+        result = result.replace(placeholder, to_string(vars.get(key)))
+    end
+    return result
+end
+
+# Render a template file.
+func render_file(path, vars)
+    var tmpl = read_file(path)
+    return render(tmpl, vars)
+end
+
+# Render and write output to a file.
+func render_to_file(tmpl, vars, out_path)
+    write_file(out_path, render(tmpl, vars))
+end
+
+# Simple if-section: replace {{#if key}}...{{/if}} blocks.
+# Keeps content if key is truthy, removes it otherwise.
+func render_if(tmpl, vars)
+    var result = tmpl
+    for key in vars.keys()
+        var open  = "{{#if " + key + "}}"
+        var close = "{{/if}}"
+        var val   = vars.get(key)
+        while result.contains(open)
+            var start = result.index_of(open)
+            var after = start + open.len()
+            var end_pos = result.index_of(close)
+            if end_pos < 0
+                break
+            end
+            var content = result.slice(after, end_pos)
+            var before  = result.slice(0, start)
+            var rest    = result.slice(end_pos + close.len(), result.len())
+            if val
+                result = before + content + rest
+            else
+                result = before + rest
+            end
+        end
+    end
+    return result
+end

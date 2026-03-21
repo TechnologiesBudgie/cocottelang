@@ -1,0 +1,76 @@
+# regex — Basic pattern matching via os.exec (grep/sed)
+# For full regex support, os.exec wraps system tools.
+
+# Return true if string matches pattern (grep -P).
+func matches(s, pattern)
+    module add "os"
+    var tmp = "/tmp/cocotte_re_" + to_string(floor(time_now()))
+    write_file(tmp, s)
+    var result = os.exec("grep -cP '" + pattern + "' " + tmp + " 2>/dev/null").trim()
+    delete_file(tmp)
+    return result != "0" and result != ""
+end
+
+# Return all matches of pattern in string (one per line).
+func find_all(s, pattern)
+    module add "os"
+    var tmp = "/tmp/cocotte_re_" + to_string(floor(time_now()))
+    write_file(tmp, s)
+    var result = os.exec("grep -oP '" + pattern + "' " + tmp + " 2>/dev/null").trim()
+    delete_file(tmp)
+    if result == "" return [] end
+    return result.split_lines()
+end
+
+# Replace first match of pattern with replacement using sed.
+func replace_first(s, pattern, replacement)
+    module add "os"
+    var tmp = "/tmp/cocotte_re_" + to_string(floor(time_now()))
+    write_file(tmp, s)
+    var result = os.exec("sed 's/" + pattern + "/" + replacement + "/' " + tmp + " 2>/dev/null")
+    delete_file(tmp)
+    return result
+end
+
+# Replace all matches of pattern with replacement.
+func replace_all(s, pattern, replacement)
+    module add "os"
+    var tmp = "/tmp/cocotte_re_" + to_string(floor(time_now()))
+    write_file(tmp, s)
+    var result = os.exec("sed 's/" + pattern + "/" + replacement + "/g' " + tmp + " 2>/dev/null")
+    delete_file(tmp)
+    return result
+end
+
+# Split string by regex pattern.
+func split(s, pattern)
+    module add "os"
+    var tmp = "/tmp/cocotte_re_" + to_string(floor(time_now()))
+    write_file(tmp, s)
+    var result = os.exec("echo '" + s + "' | tr -s '" + pattern + "' '\\n' 2>/dev/null").trim()
+    delete_file(tmp)
+    if result == "" return [] end
+    return result.split_lines()
+end
+
+# Extract first match group.
+func extract(s, pattern)
+    var matches = find_all(s, pattern)
+    if matches.is_empty() return nil end
+    return matches.get(0)
+end
+
+# Validate email.
+func is_email(s)
+    return matches(s, "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$")
+end
+
+# Validate URL.
+func is_url(s)
+    return matches(s, "^https?://[^\\s]+$")
+end
+
+# Validate IPv4.
+func is_ipv4(s)
+    return matches(s, "^([0-9]{1,3}\\.){3}[0-9]{1,3}$")
+end

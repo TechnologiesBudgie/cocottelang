@@ -1,0 +1,64 @@
+# json_schema — JSON schema validation (subset)
+
+# Validate a value against a schema map.
+# Schema fields: "type", "required" (list), "properties" (map of sub-schemas), "min", "max"
+func validate(value, schema)
+    var errors = []
+
+    # Type check
+    if schema.has_key("type")
+        var expected = schema.get("type")
+        var actual   = type_of(value)
+        var ok = false
+        if expected == "string"  and actual == "string"  ok = true end
+        if expected == "number"  and actual == "number"  ok = true end
+        if expected == "boolean" and actual == "bool"    ok = true end
+        if expected == "list"    and actual == "list"    ok = true end
+        if expected == "map"     and actual == "map"     ok = true end
+        if expected == "any"                             ok = true end
+        if not ok
+            errors.push("Expected type '" + expected + "' but got '" + actual + "'")
+        end
+    end
+
+    # Min/max for numbers
+    if schema.has_key("min") and is_number(value)
+        if value < schema.get("min")
+            errors.push("Value " + to_string(value) + " is less than minimum " + to_string(schema.get("min")))
+        end
+    end
+    if schema.has_key("max") and is_number(value)
+        if value > schema.get("max")
+            errors.push("Value " + to_string(value) + " exceeds maximum " + to_string(schema.get("max")))
+        end
+    end
+
+    # Required fields for maps
+    if schema.has_key("required") and is_map(value)
+        for field in schema.get("required")
+            if not value.has_key(field)
+                errors.push("Missing required field: " + field)
+            end
+        end
+    end
+
+    # Nested property validation
+    if schema.has_key("properties") and is_map(value)
+        var props = schema.get("properties")
+        for key in props.keys()
+            if value.has_key(key)
+                var sub_errors = validate(value.get(key), props.get(key))
+                for err in sub_errors
+                    errors.push(key + ": " + err)
+                end
+            end
+        end
+    end
+
+    return errors
+end
+
+# Return true if value is valid against schema.
+func is_valid(value, schema)
+    return validate(value, schema).is_empty()
+end

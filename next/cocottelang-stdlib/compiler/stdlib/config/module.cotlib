@@ -1,0 +1,49 @@
+# config — JSON-based configuration management with defaults
+
+class Config
+    func init(path, defaults)
+        self.path = path
+        self.data = defaults
+        if file_exists(path)
+            try
+                module add "json"
+                var loaded = json.parse(read_file(path))
+                for key in loaded.keys()
+                    self.data.set(key, loaded.get(key))
+                end
+            catch err
+                print "config: warning — could not load " + path + ": " + err
+            end
+        end
+    end
+
+    func get(key, default_val)
+        if self.data.has_key(key)
+            return self.data.get(key)
+        end
+        return default_val
+    end
+
+    func set(key, val)
+        self.data.set(key, val)
+    end
+
+    func save()
+        module add "json"
+        write_file(self.path, json.stringify(self.data))
+    end
+
+    func all()
+        return self.data
+    end
+
+    func reset(defaults)
+        self.data = defaults
+        self.save()
+    end
+end
+
+# Load a JSON config file with defaults (convenience function).
+func load(path, defaults)
+    return Config(path, defaults)
+end

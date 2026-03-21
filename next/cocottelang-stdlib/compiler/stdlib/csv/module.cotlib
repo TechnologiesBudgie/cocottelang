@@ -1,0 +1,66 @@
+# csv — CSV parsing and writing
+
+# Parse a CSV string into a list of lists.
+func parse(text, separator)
+    if separator == nil separator = "," end
+    var rows = []
+    for line in text.split_lines()
+        if line.trim() == "" continue end
+        rows.push(line.split(separator))
+    end
+    return rows
+end
+
+# Parse CSV with header row — returns list of maps.
+func parse_with_header(text, separator)
+    if separator == nil separator = "," end
+    var rows = parse(text, separator)
+    if rows.is_empty() return [] end
+    var headers = rows.get(0)
+    var result  = []
+    for i in range(1, rows.len())
+        var row = rows.get(i)
+        var map = {}
+        for j in range(0, headers.len())
+            if j < row.len()
+                map.set(headers.get(j).trim(), row.get(j).trim())
+            else
+                map.set(headers.get(j).trim(), "")
+            end
+        end
+        result.push(map)
+    end
+    return result
+end
+
+# Read a CSV file and return list of maps (with header).
+func read(path, separator)
+    if separator == nil separator = "," end
+    if not file_exists(path) return [] end
+    return parse_with_header(read_file(path), separator)
+end
+
+# Convert a list of maps to a CSV string.
+func stringify(rows, separator)
+    if separator == nil separator = "," end
+    if rows.is_empty() return "" end
+    var headers = rows.get(0).keys()
+    var lines   = [headers.join(separator)]
+    for row in rows
+        var cells = headers.map(func(h)
+            var v = to_string(row.get(h))
+            if v.contains(separator) or v.contains("\n") or v.contains("\"")
+                return "\"" + v.replace("\"", "\"\"") + "\""
+            end
+            return v
+        end)
+        lines.push(cells.join(separator))
+    end
+    return lines.join("\n")
+end
+
+# Write a list of maps to a CSV file.
+func write(path, rows, separator)
+    if separator == nil separator = "," end
+    write_file(path, stringify(rows, separator))
+end

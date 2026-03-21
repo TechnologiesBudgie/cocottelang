@@ -1,0 +1,38 @@
+# queue — FIFO queue data structure
+
+class Queue
+    func init()
+        self.items = []
+    end
+    func enqueue(item)
+        self.items.push(item)
+    end
+    func dequeue()
+        if self.is_empty() return nil end
+        var item = self.items.get(0)
+        self.items = self.items.slice(1, self.items.len())
+        return item
+    end
+    func front()
+        if self.is_empty() return nil end
+        return self.items.get(0)
+    end
+    func back()
+        if self.is_empty() return nil end
+        return self.items.last()
+    end
+    func is_empty()
+        return self.items.is_empty()
+    end
+    func size()
+        return self.items.len()
+    end
+    func clear()
+        self.items.clear()
+    end
+    func to_list()
+        return self.items.copy()
+    end
+end
+
+func create() return Queue() end

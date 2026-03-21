@@ -1,0 +1,103 @@
+# iter — Iteration and generator helpers
+
+# Build a list from start to stop (exclusive) with step.
+func range_step(start, stop, step)
+    if step == nil step = 1 end
+    var result = []
+    var i = start
+    while i < stop
+        result.push(i)
+        i = i + step
+    end
+    return result
+end
+
+# Infinite counter (limited by max): returns list [start, start+1, ...]
+func count(start, max_items)
+    var result = []
+    var i = start
+    while result.len() < max_items
+        result.push(i)
+        i = i + 1
+    end
+    return result
+end
+
+# Repeat a value n times into a list.
+func repeat(val, n)
+    var result = []
+    for i in range(0, n)
+        result.push(val)
+    end
+    return result
+end
+
+# Cycle a list n total items.
+func cycle(lst, n)
+    if lst.is_empty() return [] end
+    var result = []
+    var i = 0
+    while result.len() < n
+        result.push(lst.get(i % lst.len()))
+        i = i + 1
+    end
+    return result
+end
+
+# Enumerate: returns list of [index, item] pairs.
+func enumerate(lst)
+    var result = []
+    for i in range(0, lst.len())
+        result.push([i, lst.get(i)])
+    end
+    return result
+end
+
+# Sliding window: returns sub-lists of size n.
+func windows(lst, n)
+    var result = []
+    for i in range(0, lst.len() - n + 1)
+        result.push(lst.slice(i, i + n))
+    end
+    return result
+end
+
+# Take while predicate is true.
+func take_while(lst, pred)
+    var result = []
+    for item in lst
+        if not pred(item) break end
+        result.push(item)
+    end
+    return result
+end
+
+# Drop while predicate is true.
+func drop_while(lst, pred)
+    var dropping = true
+    var result = []
+    for item in lst
+        if dropping and pred(item) continue end
+        dropping = false
+        result.push(item)
+    end
+    return result
+end
+
+# Zip with index: returns list of {index, value} maps.
+func indexed(lst)
+    var result = []
+    for i in range(0, lst.len())
+        result.push({"index": i, "value": lst.get(i)})
+    end
+    return result
+end
+
+# Apply fn to each pair of consecutive elements.
+func pairwise(lst, fn)
+    var result = []
+    for i in range(0, lst.len() - 1)
+        result.push(fn(lst.get(i), lst.get(i + 1)))
+    end
+    return result
+end

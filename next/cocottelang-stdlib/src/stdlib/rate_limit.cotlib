@@ -1,0 +1,44 @@
+# rate_limit — Token bucket rate limiter
+
+class RateLimiter
+    func init(max_tokens, refill_per_sec)
+        self.max_tokens     = max_tokens
+        self.tokens         = max_tokens
+        self.refill_rate    = refill_per_sec
+        self.last_refill    = time_now()
+    end
+
+    func _refill()
+        var now     = time_now()
+        var elapsed = now - self.last_refill
+        var added   = elapsed * self.refill_rate
+        self.tokens = min(self.max_tokens, self.tokens + added)
+        self.last_refill = now
+    end
+
+    # Return true if request is allowed (consumes 1 token).
+    func allow()
+        self._refill()
+        if self.tokens >= 1
+            self.tokens = self.tokens - 1
+            return true
+        end
+        return false
+    end
+
+    # Block until a token is available, then consume it.
+    func wait_and_allow()
+        while not self.allow()
+            sleep(divide 1 by self.refill_rate)
+        end
+    end
+
+    func available_tokens()
+        self._refill()
+        return self.tokens
+    end
+end
+
+func create(max_tokens, refill_per_sec)
+    return RateLimiter(max_tokens, refill_per_sec)
+end

@@ -1,0 +1,70 @@
+# terminal — Terminal control utilities
+
+func clear()
+    module add "os"
+    os.exec("clear 2>/dev/null || printf '\\033c'")
+    print ""
+end
+
+func width()
+    module add "os"
+    var result = os.exec("tput cols 2>/dev/null").trim()
+    if result == "" return 80 end
+    try return to_number(result) catch err return 80 end
+end
+
+func height()
+    module add "os"
+    var result = os.exec("tput lines 2>/dev/null").trim()
+    if result == "" return 24 end
+    try return to_number(result) catch err return 24 end
+end
+
+# Print a horizontal rule across the terminal width.
+func rule(char)
+    if char == nil char = "─" end
+    var w = width()
+    print char.repeat(w)
+end
+
+# Print centered text.
+func center(text)
+    var w = width()
+    var pad = floor(divide (w - text.len()) by 2)
+    if pad < 0 pad = 0 end
+    print " ".repeat(pad) + text
+end
+
+# Move cursor (ANSI).
+func move_cursor(row, col)
+    print "\x1b[" + to_string(row) + ";" + to_string(col) + "H"
+end
+
+func hide_cursor() print "\x1b[?25l" end
+func show_cursor() print "\x1b[?25h" end
+
+# Print a boxed message.
+func box(title, content)
+    var w = width() - 4
+    if w < 10 w = 10 end
+    var top    = "┌" + "─".repeat(w + 2) + "┐"
+    var bottom = "└" + "─".repeat(w + 2) + "┘"
+    var mid    = "│ " + title.pad_right(w, " ") + " │"
+    print top
+    print mid
+    if content != nil and content != ""
+        print "│" + " ".repeat(w + 2) + "│"
+        for line in content.split_lines()
+            print "│ " + line.pad_right(w, " ").slice(0, w) + " │"
+        end
+    end
+    print bottom
+end
+
+# Display a spinner frame (call repeatedly in a loop).
+var _spinner_frames = ["|", "/", "-", "\\"]
+var _spinner_idx = 0
+func spinner(label)
+    print "\r" + _spinner_frames.get(_spinner_idx % 4) + " " + label
+    _spinner_idx = _spinner_idx + 1
+end

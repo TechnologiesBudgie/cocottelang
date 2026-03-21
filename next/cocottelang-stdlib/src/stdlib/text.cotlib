@@ -1,0 +1,81 @@
+# text — Text processing utilities
+
+# Count lines in a string.
+func line_count(s)
+    return s.split_lines().len()
+end
+
+# Extract all words from a string (alphanumeric only).
+func words(s)
+    var result = []
+    var current = ""
+    for i in range(0, s.len())
+        var c = s.get(i)
+        var alpha = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        if alpha.contains(c)
+            current = current + c
+        else
+            if current.len() > 0
+                result.push(current)
+                current = ""
+            end
+        end
+    end
+    if current.len() > 0 result.push(current) end
+    return result
+end
+
+# Compute word frequency map.
+func frequency(s)
+    var freq = {}
+    for word in words(s.lower())
+        if freq.has_key(word)
+            freq.set(word, freq.get(word) + 1)
+        else
+            freq.set(word, 1)
+        end
+    end
+    return freq
+end
+
+# Indent each line by n spaces.
+func indent(s, n)
+    var prefix = " ".repeat(n)
+    return s.split_lines().map(func(line) return prefix + line end).join("\n")
+end
+
+# Remove common leading whitespace from all lines (dedent).
+func dedent(s)
+    var lines = s.split_lines().filter(func(l) return l.trim().len() > 0 end)
+    if lines.is_empty() return s end
+    var min_indent = 999999
+    for line in lines
+        var stripped = line.trim_left()
+        var spaces = line.len() - stripped.len()
+        if spaces < min_indent min_indent = spaces end
+    end
+    return s.split_lines().map(func(line)
+        if line.len() >= min_indent return line.slice(min_indent, line.len()) end
+        return line.trim_left()
+    end).join("\n")
+end
+
+# Extract lines matching a prefix.
+func grep(s, prefix)
+    return s.split_lines().filter(func(line) return line.contains(prefix) end)
+end
+
+# Summarize text: return first n sentences.
+func summarize(s, n)
+    var sentences = []
+    var current = ""
+    for i in range(0, s.len())
+        current = current + s.get(i)
+        if s.get(i) == "." or s.get(i) == "!" or s.get(i) == "?"
+            sentences.push(current.trim())
+            current = ""
+        end
+    end
+    if sentences.len() <= n return s end
+    return sentences.slice(0, n).join(" ")
+end

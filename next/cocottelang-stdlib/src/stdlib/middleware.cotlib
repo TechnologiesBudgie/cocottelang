@@ -1,0 +1,76 @@
+# middleware — HTTP middleware helpers for use with http.serve
+
+# Wrap a handler with CORS headers.
+func cors(handler, allowed_origins)
+    if allowed_origins == nil allowed_origins = "*" end
+    return func(req)
+        var response = handler(req)
+        if is_map(response)
+            if not response.has_key("headers")
+                response.set("headers", {})
+            end
+            response.get("headers").set("Access-Control-Allow-Origin", allowed_origins)
+            response.get("headers").set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+            response.get("headers").set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        end
+        if req.get("method") == "OPTIONS"
+            return {"status": 204, "body": "", "headers": {
+                "Access-Control-Allow-Origin":  allowed_origins,
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization"
+            }}
+        end
+        return response
+    end
+end
+
+# Wrap a handler with request logging.
+func logger(handler)
+    return func(req)
+        var start = time_now()
+        var response = handler(req)
+        var elapsed = floor((time_now() - start) * 1000)
+        var status = 200
+        if is_map(response) and response.has_key("status")
+            status = response.get("status")
+        end
+        print req.get("method") + " " + req.get("path") + " → " + to_string(status) + " (" + to_string(elapsed) + "ms)"
+        return response
+    end
+end
+
+# Require a Bearer token in Authorization header.
+func auth_bearer(handler, token)
+    return func(req)
+        var auth = req.get("headers").get("authorization")
+        if auth == nil or auth != "Bearer " + token
+            return {"status": 401, "body": "{\"error\":\"unauthorized\"}",
+                    "headers": {"Content-Type": "application/json"}}
+        end
+        return handler(req)
+    end
+end
+
+# Rate-limit a handler (requests per second).
+func rate_limit(handler, requests_per_sec)
+    library add "src/stdlib/rate_limit.cotlib"
+    var limiter = rate_limit.create(requests_per_sec * 2, requests_per_sec)
+    return func(req)
+        if not limiter.allow()
+            return {"status": 429, "body": "{\"error\":\"too many requests\"}",
+                    "headers": {"Content-Type": "application/json"}}
+        end
+        return handler(req)
+    end
+end
+
+# Compose multiple middleware functions (applied left-to-right).
+func compose(handler, middlewares)
+    var result = handler
+    var i = middlewares.len() - 1
+    while i >= 0
+        result = middlewares.get(i)(result)
+        i = i - 1
+    end
+    return result
+end

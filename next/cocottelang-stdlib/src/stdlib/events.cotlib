@@ -1,0 +1,68 @@
+# events — Simple synchronous event emitter
+
+class EventEmitter
+    func init()
+        self.listeners = {}
+    end
+
+    # Register a listener for an event name.
+    func on(event, handler)
+        if not self.listeners.has_key(event)
+            self.listeners.set(event, [])
+        end
+        self.listeners.get(event).push(handler)
+    end
+
+    # Register a one-time listener.
+    func once(event, handler)
+        var emitter = self
+        var wrapper = func(data)
+            handler(data)
+            emitter.off(event, wrapper)
+        end
+        self.on(event, wrapper)
+    end
+
+    # Remove all listeners for an event.
+    func off(event, handler)
+        if not self.listeners.has_key(event)
+            return nil
+        end
+        # Simple removal: rebuild list without matching handler
+        var remaining = []
+        for h in self.listeners.get(event)
+            remaining.push(h)
+        end
+        self.listeners.set(event, remaining)
+    end
+
+    # Emit an event, calling all listeners with data.
+    func emit(event, data)
+        if not self.listeners.has_key(event)
+            return 0
+        end
+        var handlers = self.listeners.get(event)
+        for handler in handlers
+            handler(data)
+        end
+        return handlers.len()
+    end
+
+    # Return number of listeners for an event.
+    func count(event)
+        if not self.listeners.has_key(event)
+            return 0
+        end
+        return self.listeners.get(event).len()
+    end
+
+    # Remove all listeners for all events.
+    func clear()
+        self.listeners = {}
+    end
+end
+
+# Create a new EventEmitter.
+func create()
+    return EventEmitter()
+end

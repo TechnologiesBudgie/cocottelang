@@ -1,0 +1,19 @@
+# clipboard — System clipboard access via os.exec
+
+func copy(text)
+    module add "os"
+    var tmp = "/tmp/cocotte_clip_" + to_string(floor(time_now()))
+    write_file(tmp, text)
+    os.exec("xclip -selection clipboard < " + tmp + " 2>/dev/null || xsel --clipboard --input < " + tmp + " 2>/dev/null || pbcopy < " + tmp + " 2>/dev/null")
+    delete_file(tmp)
+end
+
+func paste()
+    module add "os"
+    var result = os.exec("xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null || pbpaste 2>/dev/null")
+    return result
+end
+
+func clear()
+    copy("")
+end

@@ -1,0 +1,46 @@
+# pipeline — Data processing pipeline builder
+
+class Pipeline
+    func init()
+        self.stages = []
+        self.error_handler = nil
+    end
+
+    # Add a processing stage (a function).
+    func pipe(fn)
+        self.stages.push(fn)
+        return self
+    end
+
+    # Set an error handler.
+    func on_error(fn)
+        self.error_handler = fn
+        return self
+    end
+
+    # Run the pipeline on a value.
+    func run(value)
+        var result = value
+        for stage in self.stages
+            try
+                result = stage(result)
+            catch err
+                if self.error_handler != nil
+                    result = self.error_handler(err, result)
+                else
+                    print "pipeline error: " + err
+                    return nil
+                end
+            end
+        end
+        return result
+    end
+
+    # Run pipeline on each item in a list.
+    func run_all(items)
+        return items.map(func(item) return self.run(item) end)
+            .filter(func(item) return item != nil end)
+    end
+end
+
+func create() return Pipeline() end

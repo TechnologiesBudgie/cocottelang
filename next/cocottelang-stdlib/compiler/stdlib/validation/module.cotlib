@@ -1,0 +1,79 @@
+# validation — Data validation helpers
+
+# Return true if string is a valid email (basic check).
+func is_email(s)
+    if not is_string(s) return false end
+    return s.contains("@") and s.contains(".") and s.len() > 5
+end
+
+# Return true if string looks like a URL.
+func is_url(s)
+    if not is_string(s) return false end
+    return s.starts_with("http://") or s.starts_with("https://")
+end
+
+# Return true if string is a valid integer string.
+func is_integer(s)
+    if not is_string(s) return false end
+    var trimmed = s.trim()
+    if trimmed == "" return false end
+    var start = 0
+    if trimmed.get(0) == "-" or trimmed.get(0) == "+"
+        start = 1
+    end
+    if start >= trimmed.len() return false end
+    for i in range(start, trimmed.len())
+        var c = trimmed.get(i)
+        if c < "0" or c > "9" return false end
+    end
+    return true
+end
+
+# Return true if value is a non-empty string.
+func is_non_empty(s)
+    if s == nil return false end
+    if not is_string(s) return to_string(s).trim().len() > 0 end
+    return s.trim().len() > 0
+end
+
+# Return true if number is in [min, max] inclusive.
+func in_range(n, min_val, max_val)
+    return is_number(n) and n >= min_val and n <= max_val
+end
+
+# Return true if string length is in [min_len, max_len].
+func length_between(s, min_len, max_len)
+    if not is_string(s) return false end
+    return s.len() >= min_len and s.len() <= max_len
+end
+
+# Return true if string contains only alphanumeric characters.
+func is_alphanumeric(s)
+    if not is_string(s) or s.len() == 0 return false end
+    var valid = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    for i in range(0, s.len())
+        if not valid.contains(s.get(i)) return false end
+    end
+    return true
+end
+
+# Validate a map against a schema map of {key: "required"|"optional"}.
+func validate_map(data, schema)
+    var errors = []
+    for key in schema.keys()
+        var rule = schema.get(key)
+        if rule == "required"
+            if not data.has_key(key) or data.get(key) == nil
+                errors.push("Missing required field: " + key)
+            end
+        end
+    end
+    return errors
+end
+
+# Clamp a number to [min, max].
+func clamp_number(n, min_val, max_val)
+    if n < min_val return min_val end
+    if n > max_val return max_val end
+    return n
+end

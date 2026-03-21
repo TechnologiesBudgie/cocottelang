@@ -1,0 +1,90 @@
+# random — Extended random number utilities
+
+# Random float in [min, max).
+func float(min_val, max_val)
+    return min_val + random() * (max_val - min_val)
+end
+
+# Random integer in [min, max] inclusive.
+func int(min_val, max_val)
+    return floor(min_val + random() * (max_val - min_val + 1))
+end
+
+# Random boolean with probability p of being true.
+func bool_val(p)
+    if p == nil p = 0.5 end
+    return random() < p
+end
+
+# Pick a random element from a list.
+func choice(lst)
+    if lst.is_empty() return nil end
+    return lst.get(int(0, lst.len() - 1))
+end
+
+# Sample n unique elements from a list (no replacement).
+func sample(lst, n)
+    var copy = lst.copy()
+    var result = []
+    var take = n
+    if take > copy.len() take = copy.len() end
+    while result.len() < take and not copy.is_empty()
+        var idx = int(0, copy.len() - 1)
+        result.push(copy.get(idx))
+        copy = copy.slice(0, idx).copy()
+        if idx < copy.len()
+            copy.extend(lst.slice(idx + 1, lst.len()))
+        end
+    end
+    return result
+end
+
+# Shuffle a list in place (Fisher-Yates).
+func shuffle(lst)
+    var n = lst.len()
+    var result = lst.copy()
+    var i = n - 1
+    while i > 0
+        var j = int(0, i)
+        var tmp_a = result.get(i)
+        var tmp_b = result.get(j)
+        var new_lst = []
+        for k in range(0, result.len())
+            if k == i new_lst.push(tmp_b)
+            elif k == j new_lst.push(tmp_a)
+            else new_lst.push(result.get(k)) end
+        end
+        result = new_lst
+        i = i - 1
+    end
+    return result
+end
+
+# Random string of given length from a charset.
+func string(length, charset)
+    if charset == nil
+        charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    end
+    var result = ""
+    for i in range(0, length)
+        result = result + charset.get(int(0, charset.len() - 1))
+    end
+    return result
+end
+
+# Generate a random hex string of given length.
+func hex(length)
+    return string(length, "0123456789abcdef")
+end
+
+# Weighted random choice: weights is a list of numbers parallel to items.
+func weighted_choice(items, weights)
+    var total = weights.reduce(func(acc, w) return acc + w end, 0)
+    var r = random() * total
+    var cumulative = 0
+    for i in range(0, items.len())
+        cumulative = cumulative + weights.get(i)
+        if r <= cumulative return items.get(i) end
+    end
+    return items.last()
+end

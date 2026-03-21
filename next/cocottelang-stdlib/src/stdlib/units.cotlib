@@ -1,0 +1,44 @@
+# units — Unit conversion utilities
+
+# Length
+func km_to_miles(km)    return km * 0.621371 end
+func miles_to_km(mi)    return mi * 1.60934 end
+func m_to_ft(m)         return m * 3.28084 end
+func ft_to_m(ft)        return ft * 0.3048 end
+func cm_to_in(cm)       return cm * 0.393701 end
+func in_to_cm(inch)     return inch * 2.54 end
+
+# Weight/Mass
+func kg_to_lbs(kg)      return kg * 2.20462 end
+func lbs_to_kg(lbs)     return lbs * 0.453592 end
+func g_to_oz(g)         return g * 0.035274 end
+func oz_to_g(oz)        return oz * 28.3495 end
+
+# Temperature
+func celsius_to_fahrenheit(c)   return c * 1.8 + 32 end
+func fahrenheit_to_celsius(f)   return divide (f - 32) by 1.8 end
+func celsius_to_kelvin(c)       return c + 273.15 end
+func kelvin_to_celsius(k)       return k - 273.15 end
+
+# Speed
+func kmh_to_mph(kmh)    return kmh * 0.621371 end
+func mph_to_kmh(mph)    return mph * 1.60934 end
+func ms_to_kmh(ms)      return ms * 3.6 end
+func kmh_to_ms(kmh)     return divide kmh by 3.6 end
+
+# Area
+func m2_to_ft2(m2)      return m2 * 10.7639 end
+func ft2_to_m2(ft2)     return ft2 * 0.092903 end
+func hectares_to_acres(h) return h * 2.47105 end
+
+# Volume
+func liters_to_gallons(l) return l * 0.264172 end
+func gallons_to_liters(g) return g * 3.78541 end
+func ml_to_fl_oz(ml)    return ml * 0.033814 end
+
+# Data
+func bytes_to_kb(b)     return divide b by 1024 end
+func bytes_to_mb(b)     return divide b by 1048576 end
+func bytes_to_gb(b)     return divide b by 1073741824 end
+func kb_to_bytes(kb)    return kb * 1024 end
+func mb_to_bytes(mb)    return mb * 1048576 end

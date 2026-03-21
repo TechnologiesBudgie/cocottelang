@@ -1,0 +1,48 @@
+# dotenv — Load .env files into a map
+# Note: does not modify the process environment — values must be used explicitly.
+
+# Parse a .env file and return a map of key -> value.
+func load(path)
+    var result = {}
+    if not file_exists(path)
+        return result
+    end
+    var lines = read_file(path).split_lines()
+    for line in lines
+        var trimmed = line.trim()
+        if trimmed == "" or trimmed.starts_with("#")
+            continue
+        end
+        var eq = trimmed.index_of("=")
+        if eq < 0
+            continue
+        end
+        var key = trimmed.slice(0, eq).trim()
+        var val = trimmed.slice(eq + 1, trimmed.len()).trim()
+        if val.starts_with("\"") and val.ends_with("\"")
+            val = val.slice(1, val.len() - 1)
+        elif val.starts_with("'") and val.ends_with("'")
+            val = val.slice(1, val.len() - 1)
+        end
+        result.set(key, val)
+    end
+    return result
+end
+
+# Load .env and return value for key, or default.
+func get(path, key, default_val)
+    var map = load(path)
+    if map.has_key(key)
+        return map.get(key)
+    end
+    return default_val
+end
+
+# Write a map back to a .env file.
+func save(path, map)
+    var lines = []
+    for key in map.keys()
+        lines.push(key + "=" + to_string(map.get(key)))
+    end
+    write_file(path, lines.join("\n") + "\n")
+end

@@ -1,0 +1,64 @@
+# hash — Hashing utilities (MD5, SHA1, SHA256 via os.exec)
+
+# SHA256 hash of a string.
+func sha256(s)
+    module add "os"
+    var tmp = "/tmp/cocotte_hash_" + to_string(floor(time_now()))
+    write_file(tmp, s)
+    var result = os.exec("sha256sum " + tmp + " 2>/dev/null | awk '{print $1}'").trim()
+    delete_file(tmp)
+    if result == ""
+        result = os.exec("shasum -a 256 " + tmp + " 2>/dev/null | awk '{print $1}'").trim()
+    end
+    return result
+end
+
+# SHA1 hash of a string.
+func sha1(s)
+    module add "os"
+    var tmp = "/tmp/cocotte_hash_" + to_string(floor(time_now()))
+    write_file(tmp, s)
+    var result = os.exec("sha1sum " + tmp + " 2>/dev/null | awk '{print $1}'").trim()
+    delete_file(tmp)
+    if result == ""
+        result = os.exec("shasum " + tmp + " 2>/dev/null | awk '{print $1}'").trim()
+    end
+    return result
+end
+
+# MD5 hash of a string.
+func md5(s)
+    module add "os"
+    var tmp = "/tmp/cocotte_hash_" + to_string(floor(time_now()))
+    write_file(tmp, s)
+    var result = os.exec("md5sum " + tmp + " 2>/dev/null | awk '{print $1}'").trim()
+    delete_file(tmp)
+    if result == ""
+        result = os.exec("md5 -q " + tmp + " 2>/dev/null").trim()
+    end
+    return result
+end
+
+# SHA256 hash of a file.
+func sha256_file(path)
+    module add "os"
+    var result = os.exec("sha256sum " + path + " 2>/dev/null | awk '{print $1}'").trim()
+    if result == ""
+        result = os.exec("shasum -a 256 " + path + " 2>/dev/null | awk '{print $1}'").trim()
+    end
+    return result
+end
+
+# Simple DJB2 hash (pure Cocotte, no os.exec needed).
+func djb2(s)
+    var h = 5381
+    for i in range(0, s.len())
+        h = (h * 33 + char_code(s.get(i))) % 2147483647
+    end
+    return h
+end
+
+# Verify that a string matches a known SHA256 hash.
+func verify_sha256(s, expected)
+    return sha256(s) == expected
+end

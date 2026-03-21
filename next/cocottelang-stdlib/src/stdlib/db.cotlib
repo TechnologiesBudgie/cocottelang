@@ -1,0 +1,89 @@
+# db — High-level SQLite database wrapper (builds on sqlite module)
+
+class DB
+    func init(path)
+        module add "sqlite"
+        self.path = path
+        self.db   = sqlite.open(path)
+    end
+
+    func exec(sql)
+        module add "sqlite"
+        sqlite.exec(self.db, sql)
+    end
+
+    func query(sql)
+        module add "sqlite"
+        return sqlite.query(self.db, sql)
+    end
+
+    func query_one(sql)
+        module add "sqlite"
+        return sqlite.query_one(self.db, sql)
+    end
+
+    func tables()
+        module add "sqlite"
+        return sqlite.tables(self.db)
+    end
+
+    func create_table(name, columns)
+        var col_defs = []
+        for col in columns
+            col_defs.push(col)
+        end
+        self.exec("CREATE TABLE IF NOT EXISTS " + name + " (" + col_defs.join(", ") + ")")
+    end
+
+    func insert(table, data)
+        var keys = data.keys()
+        var values = keys.map(func(k) return "'" + to_string(data.get(k)).replace("'","''") + "'" end)
+        self.exec("INSERT INTO " + table + " (" + keys.join(",") + ") VALUES (" + values.join(",") + ")")
+    end
+
+    func update(table, data, where)
+        var sets = data.keys().map(func(k) return k + "='" + to_string(data.get(k)).replace("'","''") + "'" end)
+        self.exec("UPDATE " + table + " SET " + sets.join(", ") + " WHERE " + where)
+    end
+
+    func delete(table, where)
+        self.exec("DELETE FROM " + table + " WHERE " + where)
+    end
+
+    func find(table, where)
+        if where == nil where = "1=1" end
+        return self.query("SELECT * FROM " + table + " WHERE " + where)
+    end
+
+    func find_one(table, where)
+        if where == nil where = "1=1" end
+        return self.query_one("SELECT * FROM " + table + " WHERE " + where + " LIMIT 1")
+    end
+
+    func count(table, where)
+        if where == nil where = "1=1" end
+        var row = self.query_one("SELECT COUNT(*) as n FROM " + table + " WHERE " + where)
+        if row == nil return 0 end
+        return to_number(row.get("n"))
+    end
+
+    func exists(table, where)
+        return self.count(table, where) > 0
+    end
+
+    func migrate(migrations)
+        self.exec("CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, run_at TEXT)")
+        for migration in migrations
+            var name = migration.get("name")
+            var already_run = self.find_one("_migrations", "name='" + name + "'")
+            if already_run == nil
+                self.exec(migration.get("sql"))
+                module add "os"
+                self.exec("INSERT INTO _migrations(name, run_at) VALUES('" + name + "','" + os.exec("date '+%Y-%m-%d %H:%M:%S'").trim() + "')")
+                print "migration applied: " + name
+            end
+        end
+    end
+end
+
+func open(path) return DB(path) end

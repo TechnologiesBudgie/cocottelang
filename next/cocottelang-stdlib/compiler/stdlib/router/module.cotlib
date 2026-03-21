@@ -1,0 +1,75 @@
+# router — HTTP request router for use with http.serve
+
+class Router
+    func init()
+        self.routes  = []
+        self.not_found_handler = nil
+    end
+
+    func _add(method, path, handler)
+        self.routes.push({"method": method, "path": path, "handler": handler})
+    end
+
+    func get(path, handler)    self._add("GET",    path, handler) end
+    func post(path, handler)   self._add("POST",   path, handler) end
+    func put(path, handler)    self._add("PUT",    path, handler) end
+    func delete(path, handler) self._add("DELETE", path, handler) end
+    func any(path, handler)    self._add("ANY",    path, handler) end
+
+    func not_found(handler)
+        self.not_found_handler = handler
+    end
+
+    # Match a request map and call the handler.
+    func handle(req)
+        var method = req.get("method")
+        var path   = req.get("path")
+        for route in self.routes
+            var rm = route.get("method")
+            var rp = route.get("path")
+            if (rm == "ANY" or rm == method) and self._match(rp, path)
+                var params = self._extract_params(rp, path)
+                return route.get("handler")(req, params)
+            end
+        end
+        if self.not_found_handler != nil
+            return self.not_found_handler(req, {})
+        end
+        return {"status": 404, "body": "{\"error\":\"not found\"}",
+                "headers": {"Content-Type": "application/json"}}
+    end
+
+    # Check if route pattern matches path (supports :param segments).
+    func _match(pattern, path)
+        var pp = pattern.split("/")
+        var rp = path.split("/")
+        if pp.len() != rp.len() return false end
+        for i in range(0, pp.len())
+            var ps = pp.get(i)
+            var rs = rp.get(i)
+            if not ps.starts_with(":") and ps != rs return false end
+        end
+        return true
+    end
+
+    # Extract :param values from a matched path.
+    func _extract_params(pattern, path)
+        var pp = pattern.split("/")
+        var rp = path.split("/")
+        var params = {}
+        for i in range(0, pp.len())
+            if pp.get(i).starts_with(":")
+                params.set(pp.get(i).slice(1, pp.get(i).len()), rp.get(i))
+            end
+        end
+        return params
+    end
+end
+
+func create() return Router() end
+
+# Convenience: start a server with a router.
+func serve(port, router)
+    module add "http"
+    http.serve(port, func(req) return router.handle(req) end)
+end

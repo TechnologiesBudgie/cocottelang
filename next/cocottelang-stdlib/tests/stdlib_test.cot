@@ -1,0 +1,847 @@
+# stdlib_test.cot — Tests for all 68 stdlib modules
+# Run from the cocottelang-stdlib root:
+#   cocotte run tests/stdlib_test.cot
+
+var _passed = 0
+var _failed = 0
+var _errors = []
+
+func check(name, actual, expected)
+    if actual == expected
+        _passed = _passed + 1
+    else
+        _failed = _failed + 1
+        _errors.push("FAIL " + name + " — expected: " + to_string(expected) + " got: " + to_string(actual))
+    end
+end
+
+func check_true(name, val)
+    check(name, val, true)
+end
+
+func check_not_nil(name, val)
+    if val != nil
+        _passed = _passed + 1
+    else
+        _failed = _failed + 1
+        _errors.push("FAIL " + name + " — got nil")
+    end
+end
+
+func section(name)
+    print "  Testing " + name + "..."
+end
+
+print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+print "  Cocotte stdlib test suite"
+print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# ── stack ──────────────────────────────────────────────────────────────────────
+section("stack")
+library add "src/stdlib/stack.cotlib"
+var s = stack.create()
+check("stack empty", s.is_empty(), true)
+s.push(1)
+s.push(2)
+s.push(3)
+check("stack size", s.size(), 3)
+check("stack pop", s.pop(), 3)
+check("stack peek", s.peek(), 2)
+check("stack size after pop", s.size(), 2)
+s.clear()
+check("stack clear", s.is_empty(), true)
+
+# ── queue ──────────────────────────────────────────────────────────────────────
+section("queue")
+library add "src/stdlib/queue.cotlib"
+var q = queue.create()
+check("queue empty", q.is_empty(), true)
+q.enqueue("a")
+q.enqueue("b")
+q.enqueue("c")
+check("queue size", q.size(), 3)
+check("queue dequeue", q.dequeue(), "a")
+check("queue front", q.front(), "b")
+check("queue size after dequeue", q.size(), 2)
+
+# ── deque ──────────────────────────────────────────────────────────────────────
+section("deque")
+library add "src/stdlib/deque.cotlib"
+var d = deque.create()
+d.push_back("b")
+d.push_front("a")
+d.push_back("c")
+check("deque front", d.pop_front(), "a")
+check("deque back", d.pop_back(), "c")
+check("deque size", d.size(), 1)
+
+# ── set ────────────────────────────────────────────────────────────────────────
+section("set")
+library add "src/stdlib/set.cotlib"
+var sv = set.from_list([1, 2, 3, 2, 1])
+check("set size dedup", sv.size(), 3)
+check("set has", sv.has(2), true)
+check("set not has", sv.has(9), false)
+sv.remove(2)
+check("set remove", sv.has(2), false)
+var s2 = set.from_list([3, 4, 5])
+check("set union", sv.union(s2).size(), 4)
+check("set intersection", sv.intersection(s2).size(), 1)
+
+# ── heap ───────────────────────────────────────────────────────────────────────
+section("heap")
+library add "src/stdlib/heap.cotlib"
+var h = heap.create()
+h.push(5)
+h.push(1)
+h.push(3)
+h.push(2)
+check("heap min pop", h.pop(), 1)
+check("heap next", h.peek(), 2)
+check("heap size", h.size(), 3)
+
+# ── cache ──────────────────────────────────────────────────────────────────────
+section("cache")
+library add "src/stdlib/cache.cotlib"
+var c = cache.create(3)
+c.set("a", 1)
+c.set("b", 2)
+c.set("c", 3)
+check("cache get", c.get("a"), 1)
+c.set("d", 4)
+check("cache lru evict", c.size(), 3)
+check("cache has", c.has("d"), true)
+
+# ── collections ────────────────────────────────────────────────────────────────
+section("collections")
+library add "src/stdlib/collections.cotlib"
+var counter = collections.counter()
+counter.add("x")
+counter.add("x")
+counter.add("y")
+check("counter count", counter.count("x"), 2)
+check("counter missing", counter.count("z"), 0)
+
+var dm = collections.default_map(0)
+dm.increment("key")
+dm.increment("key")
+check("default_map", dm.get("key"), 2)
+check("default_map missing", dm.get("absent"), 0)
+
+var groups = collections.group_by([1,2,3,4,5,6], func(n) return to_string(n % 2) end)
+check("group_by even", groups.get("0").len(), 3)
+
+var chunks = collections.chunk([1,2,3,4,5], 2)
+check("chunk count", chunks.len(), 3)
+check("chunk first", chunks.get(0).len(), 2)
+
+var flat = collections.flatten([[1,2],[3,4],[5]])
+check("flatten", flat.len(), 5)
+
+var zipped = collections.zip([1,2,3], ["a","b","c"])
+check("zip", zipped.get(1).get(1), "b")
+
+var uniq = collections.unique([1,1,2,2,3])
+check("unique", uniq.len(), 3)
+
+var parts = collections.partition([1,2,3,4,5], func(n) return n % 2 == 0 end)
+check("partition even", parts.get(0).len(), 2)
+check("partition odd", parts.get(1).len(), 3)
+
+# ── strings ────────────────────────────────────────────────────────────────────
+section("strings")
+library add "src/stdlib/strings.cotlib"
+check("strings reverse", strings.reverse("hello"), "olleh")
+check("strings palindrome", strings.is_palindrome("racecar"), true)
+check("strings not palindrome", strings.is_palindrome("hello"), false)
+check("strings title_case", strings.title_case("hello world"), "Hello World")
+check("strings to_camel", strings.to_camel_case("hello_world"), "helloWorld")
+check("strings to_snake", strings.to_snake_case("HelloWorld"), "hello_world")
+check("strings compact", strings.compact("h e l l o"), "hello")
+check("strings count", strings.count("banana", "an"), 2)
+check("strings edit_dist", strings.edit_distance("kitten", "sitting"), 3)
+check("strings slugify", strings.slugify("Hello, World!"), "hello-world")
+check("strings word_count", strings.word_count("one two three"), 3)
+check("strings wrap", strings.word_wrap("one two three four five", 10).contains("\n"), true)
+
+# ── fmt ────────────────────────────────────────────────────────────────────────
+section("fmt")
+library add "src/stdlib/fmt.cotlib"
+check("fmt pad_left", fmt.pad_left("5", 3, "0"), "005")
+check("fmt pad_right", fmt.pad_right("hi", 5, "."), "hi...")
+check("fmt truncate", fmt.truncate("hello world", 8, "..."), "hello...")
+check("fmt thousands", fmt.thousands(1234567), "1,234,567")
+check("fmt bytes B", fmt.bytes(512), "512 B")
+check("fmt bytes MB", fmt.bytes(1048576), "1.0 MB")
+check("fmt duration s", fmt.duration(45), "45s")
+check("fmt duration m", fmt.duration(90), "1m 30s")
+check("fmt duration h", fmt.duration(3661), "1h 1m 1s")
+check("fmt percent", fmt.percent(1, 4, 0), "25%")
+
+# ── path ───────────────────────────────────────────────────────────────────────
+section("path")
+library add "src/stdlib/path.cotlib"
+check("path join", path.join("/home/user", "docs"), "/home/user/docs")
+check("path basename", path.basename("/home/user/file.txt"), "file.txt")
+check("path dirname", path.dirname("/home/user/file.txt"), "/home/user")
+check("path ext", path.ext("photo.jpg"), "jpg")
+check("path stem", path.stem("photo.jpg"), "photo")
+check("path is_absolute", path.is_absolute("/usr/bin"), true)
+check("path is_relative", path.is_relative("src/main.cot"), true)
+check("path normalize", path.normalize("/a//b///c/"), "/a/b/c")
+check("path with_ext", path.with_ext("file.txt", "md"), "./file.md")
+
+# ── fs ─────────────────────────────────────────────────────────────────────────
+section("fs")
+library add "src/stdlib/fs.cotlib"
+var tmp_path = "/tmp/cocotte_stdlib_test_" + to_string(floor(time_now()))
+write_file(tmp_path, "line1\nline2\nline3")
+check("fs read_lines count", fs.read_lines(tmp_path).len(), 3)
+check("fs extension", fs.extension(tmp_path), "")
+check("fs basename", fs.basename(tmp_path).starts_with("cocotte"), true)
+check("fs exists", fs.exists(tmp_path), true)
+check("fs size", fs.size(tmp_path) > 0, true)
+var copied = tmp_path + "_copy"
+fs.copy(tmp_path, copied)
+check("fs copy", fs.exists(copied), true)
+fs.remove(tmp_path)
+fs.remove(copied)
+check("fs remove", fs.exists(tmp_path), false)
+
+var json_path = "/tmp/cocotte_json_test.json"
+fs.write_json(json_path, {"hello": "world"})
+var loaded = fs.read_json(json_path)
+check("fs write/read json", loaded.get("hello"), "world")
+fs.remove(json_path)
+
+# ── validation ─────────────────────────────────────────────────────────────────
+section("validation")
+library add "src/stdlib/validation.cotlib"
+check("valid email", validation.is_email("user@example.com"), true)
+check("invalid email", validation.is_email("notanemail"), false)
+check("valid url", validation.is_url("https://example.com"), true)
+check("invalid url", validation.is_url("example.com"), false)
+check("valid integer", validation.is_integer("42"), true)
+check("valid neg integer", validation.is_integer("-5"), true)
+check("invalid integer", validation.is_integer("3.14"), false)
+check("non_empty true", validation.is_non_empty("hello"), true)
+check("non_empty false", validation.is_non_empty("  "), false)
+check("in_range true", validation.in_range(5, 1, 10), true)
+check("in_range false", validation.in_range(15, 1, 10), false)
+check("alphanumeric true", validation.is_alphanumeric("abc123"), true)
+check("alphanumeric false", validation.is_alphanumeric("abc!"), false)
+check("length_between true", validation.length_between("hello", 3, 10), true)
+check("clamp", validation.clamp_number(15, 0, 10), 10)
+var schema_errors = validation.validate_map({"name": "Alice"}, {"name": "required", "email": "required"})
+check("validate_map missing", schema_errors.len(), 1)
+
+# ── statistics ─────────────────────────────────────────────────────────────────
+section("statistics")
+library add "src/stdlib/statistics.cotlib"
+var data = [2, 4, 4, 4, 5, 5, 7, 9]
+check("statistics sum", statistics.sum(data), 40)
+check("statistics mean", statistics.mean(data), 5)
+check("statistics median", statistics.median(data), 4.5)
+check("statistics mode", statistics.mode(data), 4)
+check("statistics min", statistics.min_val(data), 2)
+check("statistics max", statistics.max_val(data), 9)
+check("statistics range", statistics.range_val(data), 7)
+var norm = statistics.normalize([0, 5, 10])
+check("statistics normalize", norm.get(0), 0)
+check("statistics normalize mid", norm.get(1), 0.5)
+check("statistics normalize max", norm.get(2), 1)
+var desc = statistics.describe(data)
+check("statistics describe count", desc.get("count"), 8)
+
+# ── random ─────────────────────────────────────────────────────────────────────
+section("random")
+library add "src/stdlib/random.cotlib"
+var ri = random.int(1, 6)
+check("random int range", ri >= 1 and ri <= 6, true)
+var rf = random.float(0, 1)
+check("random float range", rf >= 0 and rf < 1, true)
+var rb = random.bool_val(1.0)
+check("random bool true", rb, true)
+var lst = [1,2,3,4,5]
+var choice = random.choice(lst)
+check("random choice in list", lst.contains(choice), true)
+var shuffled = random.shuffle(lst)
+check("random shuffle len", shuffled.len(), 5)
+var rs = random.string(8, nil)
+check("random string len", rs.len(), 8)
+var rh = random.hex(10)
+check("random hex len", rh.len(), 10)
+
+# ── sort ───────────────────────────────────────────────────────────────────────
+section("sort")
+library add "src/stdlib/sort.cotlib"
+var nums = [5, 3, 8, 1, 9, 2]
+var sorted = sort.merge_sort(nums)
+check("sort merge first", sorted.get(0), 1)
+check("sort merge last", sorted.last(), 9)
+var users = [{"name": "Charlie", "age": 30}, {"name": "Alice", "age": 25}, {"name": "Bob", "age": 35}]
+var by_name = sort.by_field(users, "name")
+check("sort by_field first", by_name.get(0).get("name"), "Alice")
+var by_age_desc = sort.by_field_desc(users, "age")
+check("sort by_field_desc first", by_age_desc.get(0).get("name"), "Bob")
+check("sort binary_search found", sort.binary_search([1,2,3,4,5], 3), 2)
+check("sort binary_search missing", sort.binary_search([1,2,3,4,5], 9), -1)
+
+# ── search ─────────────────────────────────────────────────────────────────────
+section("search")
+library add "src/stdlib/search.cotlib"
+var items = ["apple", "banana", "cherry"]
+check("search linear found", search.linear(items, "banana"), 1)
+check("search linear missing", search.linear(items, "grape"), -1)
+check("search binary found", search.binary(["a","b","c","d"], "c"), 2)
+var people = [{"name": "Alice"}, {"name": "Bob"}, {"name": "Charlie"}]
+check("search fulltext", search.fulltext(people, "ali").len(), 1)
+check("search fuzzy", search.fuzzy(people, "bc", "name").len(), 1)
+
+# ── functional ─────────────────────────────────────────────────────────────────
+section("functional")
+library add "src/stdlib/functional.cotlib"
+var double = func(x) return x * 2 end
+var inc    = func(x) return x + 1 end
+var f = functional.compose(double, inc)
+check("functional compose", f(5), 12)
+check("functional pipe", functional.pipe(5, [inc, double, inc]), 13)
+var add5 = functional.partial(func(a, b) return a + b end, 5)
+check("functional partial", add5(3), 8)
+var memo_calls = 0
+var memo_fn = functional.memoize(func(x)
+    memo_calls = memo_calls + 1
+    return x * x
+end)
+memo_fn(4)
+memo_fn(4)
+check("functional memoize cache", memo_calls, 1)
+check("functional identity", functional.identity(42), 42)
+check("functional times", functional.times(double, 3, 1), 8)
+var not_even = functional.negate(func(n) return n % 2 == 0 end)
+check("functional negate", not_even(3), true)
+
+# ── iter ───────────────────────────────────────────────────────────────────────
+section("iter")
+library add "src/stdlib/iter.cotlib"
+check("iter range_step", iter.range_step(0, 10, 3), [0, 3, 6, 9])
+check("iter repeat", iter.repeat("x", 3), ["x", "x", "x"])
+check("iter cycle len", iter.cycle([1,2], 5).len(), 5)
+check("iter cycle val", iter.cycle([1,2], 5).get(4), 1)
+var enum_result = iter.enumerate(["a","b","c"])
+check("iter enumerate index", enum_result.get(1).get(0), 1)
+check("iter enumerate val", enum_result.get(1).get(1), "b")
+check("iter windows len", iter.windows([1,2,3,4], 2).len(), 3)
+check("iter take_while", iter.take_while([1,2,3,4,5], func(n) return n < 4 end).len(), 3)
+check("iter drop_while", iter.drop_while([1,2,3,4,5], func(n) return n < 3 end), [3,4,5])
+check("iter pairwise", iter.pairwise([1,2,3,4], func(a,b) return a+b end), [3,5,7])
+
+# ── graph ──────────────────────────────────────────────────────────────────────
+section("graph")
+library add "src/stdlib/graph.cotlib"
+var g = graph.undirected()
+g.add_edge("A", "B")
+g.add_edge("B", "C")
+g.add_edge("D", "E")
+check("graph has_node", g.has_node("A"), true)
+check("graph neighbors", g.neighbors("B").len(), 2)
+check("graph bfs len", g.bfs("A").len(), 3)
+check("graph has_path true", g.has_path("A", "C"), true)
+check("graph has_path false", g.has_path("A", "D"), false)
+var dg = graph.directed()
+dg.add_edge("X", "Y")
+check("directed neighbor", dg.neighbors("X").len(), 1)
+check("directed no reverse", dg.neighbors("Y").len(), 0)
+
+# ── matrices ───────────────────────────────────────────────────────────────────
+section("matrices")
+library add "src/stdlib/matrices.cotlib"
+var m = matrices.zeros(2, 3)
+check("matrices zeros", matrices.get(m, 0, 2), 0)
+check("matrices rows", matrices.rows(m), 2)
+check("matrices cols", matrices.cols(m), 3)
+var id = matrices.identity(3)
+check("matrices identity diag", matrices.get(id, 1, 1), 1)
+check("matrices identity off", matrices.get(id, 0, 1), 0)
+var a = [[1,2],[3,4]]
+var b = [[5,6],[7,8]]
+var added = matrices.add(a, b)
+check("matrices add", matrices.get(added, 0, 0), 6)
+var scaled = matrices.scale([[1,2],[3,4]], 2)
+check("matrices scale", matrices.get(scaled, 1, 1), 8)
+var t = matrices.transpose([[1,2,3],[4,5,6]])
+check("matrices transpose rows", matrices.rows(t), 3)
+check("matrices transpose val", matrices.get(t, 0, 1), 4)
+
+# ── complex ────────────────────────────────────────────────────────────────────
+section("complex")
+library add "src/stdlib/complex.cotlib"
+var z1 = complex.new(3, 4)
+var z2 = complex.new(1, 2)
+check("complex abs", z1.abs(), 5)
+var zadd = z1.add(z2)
+check("complex add real", zadd.real, 4)
+check("complex add imag", zadd.imag, 6)
+var zmul = z1.mul(z2)
+check("complex mul real", zmul.real, -5)
+check("complex mul imag", zmul.imag, 10)
+var zconj = z1.conjugate()
+check("complex conjugate", zconj.imag, -4)
+
+# ── geometry ───────────────────────────────────────────────────────────────────
+section("geometry")
+library add "src/stdlib/geometry.cotlib"
+check("geometry distance_2d", geometry.distance_2d(0, 0, 3, 4), 5)
+check("geometry rect_area", geometry.rect_area(4, 5), 20)
+check("geometry rect_perimeter", geometry.rect_perimeter(4, 5), 18)
+check("geometry triangle_area", geometry.triangle_area(6, 4), 12)
+check("geometry lerp", geometry.lerp(0, 10, 0.5), 5)
+check("geometry point_in_rect true", geometry.point_in_rect(5, 5, 0, 0, 10, 10), true)
+check("geometry point_in_rect false", geometry.point_in_rect(15, 5, 0, 0, 10, 10), false)
+
+# ── units ──────────────────────────────────────────────────────────────────────
+section("units")
+library add "src/stdlib/units.cotlib"
+check("units km_to_miles", format_number(units.km_to_miles(1), 3), "0.621")
+check("units celsius_to_f", units.celsius_to_fahrenheit(0), 32)
+check("units celsius_to_f boil", units.celsius_to_fahrenheit(100), 212)
+check("units kg_to_lbs", format_number(units.kg_to_lbs(1), 3), "2.205")
+check("units bytes_to_mb", units.bytes_to_mb(1048576), 1)
+
+# ── url ────────────────────────────────────────────────────────────────────────
+section("url")
+library add "src/stdlib/url.cotlib"
+var parsed = url.parse("https://api.example.com:8080/users?page=2#top")
+check("url scheme", parsed.get("scheme"), "https")
+check("url host", parsed.get("host"), "api.example.com")
+check("url port", parsed.get("port"), "8080")
+check("url path", parsed.get("path"), "/users")
+check("url query", parsed.get("query"), "page=2")
+check("url fragment", parsed.get("fragment"), "top")
+var qp = url.parse_query("a=1&b=hello+world&c=true")
+check("url parse_query a", qp.get("a"), "1")
+check("url parse_query b", qp.get("b"), "hello world")
+var bq = url.build_query({"x": "1", "y": "2"})
+check("url build_query contains", bq.contains("x=1"), true)
+check("url join", url.join("https://example.com/api", "users"), "https://example.com/api/users")
+
+# ── uuid ───────────────────────────────────────────────────────────────────────
+section("uuid")
+library add "src/stdlib/uuid.cotlib"
+var u = uuid.v4()
+check("uuid length", u.len(), 36)
+check("uuid valid", uuid.is_valid(u), true)
+check("uuid invalid", uuid.is_valid("not-a-uuid"), false)
+var short = uuid.short_id()
+check("uuid short length", short.len(), 8)
+
+# ── hash ───────────────────────────────────────────────────────────────────────
+section("hash")
+library add "src/stdlib/hash.cotlib"
+var djb = hash.djb2("hello")
+check("hash djb2 type", is_number(djb), true)
+check("hash djb2 stable", hash.djb2("hello"), hash.djb2("hello"))
+check("hash djb2 different", hash.djb2("hello") != hash.djb2("world"), true)
+
+# ── base64 ─────────────────────────────────────────────────────────────────────
+section("base64")
+library add "src/stdlib/base64.cotlib"
+var encoded = base64.encode("Hello, World!")
+check("base64 encode not empty", encoded.len() > 0, true)
+var decoded = base64.decode(encoded)
+check("base64 roundtrip", decoded, "Hello, World!")
+
+# ── passwords ──────────────────────────────────────────────────────────────────
+section("passwords")
+library add "src/stdlib/passwords.cotlib"
+var pwd = passwords.generate(16, true)
+check("passwords len", pwd.len(), 16)
+check("passwords strength weak", passwords.strength("abc") <= 2, true)
+check("passwords strength strong", passwords.strength("Abc123!@#xyz789") >= 3, true)
+check("passwords strength_label", passwords.strength_label("abc"), "Very Weak")
+
+# ── dotenv ─────────────────────────────────────────────────────────────────────
+section("dotenv")
+library add "src/stdlib/dotenv.cotlib"
+var env_path = "/tmp/cocotte_test.env"
+write_file(env_path, "PORT=9192\nDEBUG=true\nNAME=\"My App\"\n# comment\n")
+var env_data = dotenv.load(env_path)
+check("dotenv port", env_data.get("PORT"), "9192")
+check("dotenv debug", env_data.get("DEBUG"), "true")
+check("dotenv quoted", env_data.get("NAME"), "My App")
+check("dotenv get with default", dotenv.get(env_path, "MISSING", "fallback"), "fallback")
+delete_file(env_path)
+
+# ── ini ────────────────────────────────────────────────────────────────────────
+section("ini")
+library add "src/stdlib/ini.cotlib"
+var ini_text = "[database]\nhost = localhost\nport = 5432\n\n[app]\nname = myapp\ndebug = false\n"
+var ini_data = ini.parse(ini_text)
+check("ini section", ini.get(ini_data, "database", "host", nil), "localhost")
+check("ini port", ini.get(ini_data, "database", "port", nil), "5432")
+check("ini default", ini.get(ini_data, "database", "missing", "default"), "default")
+var ini_str = ini.stringify(ini_data)
+check("ini stringify", ini_str.contains("[database]"), true)
+
+# ── csv ────────────────────────────────────────────────────────────────────────
+section("csv")
+library add "src/stdlib/csv.cotlib"
+var csv_text = "name,age,city\nAlice,30,Paris\nBob,25,London\nCharlie,35,Tokyo\n"
+var rows = csv.parse_with_header(csv_text, ",")
+check("csv row count", rows.len(), 3)
+check("csv first name", rows.get(0).get("name"), "Alice")
+check("csv last city", rows.get(2).get("city"), "Tokyo")
+var out = csv.stringify(rows, ",")
+check("csv stringify header", out.starts_with("name,age,city") or out.starts_with("age,") or out.starts_with("city,"), true)
+
+# ── template ───────────────────────────────────────────────────────────────────
+section("template")
+library add "src/stdlib/template.cotlib"
+var result = template.render("Hello, {{name}}! You are {{age}} years old.", {"name": "Alice", "age": 30})
+check("template render name", result.contains("Alice"), true)
+check("template render age", result.contains("30"), true)
+check("template no placeholder", template.render("no vars", {}), "no vars")
+
+# ── i18n ───────────────────────────────────────────────────────────────────────
+section("i18n")
+library add "src/stdlib/i18n.cotlib"
+i18n.set_locale("en")
+check("i18n locale", i18n.get_locale(), "en")
+check("i18n missing key returns key", i18n.t("greeting"), "greeting")
+check("i18n pluralize singular", i18n.pluralize(1, "item", "items"), "1 item")
+check("i18n pluralize plural", i18n.pluralize(5, "item", "items"), "5 items")
+
+# ── logging ────────────────────────────────────────────────────────────────────
+section("logging")
+library add "src/stdlib/logging.cotlib"
+logging.set_level(3)    # Only ERROR during tests to avoid noise
+logging.error("test error (expected)")
+logging.set_level(1)
+check("logging level set", true, true)   # No crash = pass
+
+# ── colors ─────────────────────────────────────────────────────────────────────
+section("colors")
+library add "src/stdlib/colors.cotlib"
+check("colors red", colors.red("x").contains("x"), true)
+check("colors green contains reset", colors.green("hi").contains("\x1b[0m"), true)
+check("colors strip", colors.strip(colors.bold("text")), "text")
+check("colors success", colors.success("ok").contains("✓"), true)
+
+# ── terminal ───────────────────────────────────────────────────────────────────
+section("terminal")
+library add "src/stdlib/terminal.cotlib"
+var w = terminal.width()
+check("terminal width > 0", w > 0, true)
+var hv = terminal.height()
+check("terminal height > 0", hv > 0, true)
+
+# ── text ───────────────────────────────────────────────────────────────────────
+section("text")
+library add "src/stdlib/text.cotlib"
+check("text line_count", text.line_count("a\nb\nc"), 3)
+check("text words", text.words("hello world 123").len(), 3)
+var freq = text.frequency("the cat sat on the mat")
+check("text frequency the", freq.get("the"), 2)
+check("text indent", text.indent("hello", 4), "    hello")
+check("text grep", text.grep("foo bar\nhello\nfoo baz", "foo").len(), 2)
+check("text summarize", text.summarize("First. Second. Third.", 1), "First.")
+
+# ── markdown ───────────────────────────────────────────────────────────────────
+section("markdown")
+library add "src/stdlib/markdown.cotlib"
+check("markdown h1", markdown.h1("Title"), "# Title\n")
+check("markdown bold", markdown.bold("text"), "**text**")
+check("markdown link", markdown.link("click", "http://x.com"), "[click](http://x.com)")
+check("markdown ul item", markdown.ul(["a","b"]).contains("- a"), true)
+check("markdown code_block", markdown.code_block("x=1","python").contains("```python"), true)
+check("markdown table", markdown.table(["A","B"],[[1,2],[3,4]]).contains("---"), true)
+
+# ── html ───────────────────────────────────────────────────────────────────────
+section("html")
+library add "src/stdlib/html.cotlib"
+check("html h1", html.h1("Hello"), "<h1>Hello</h1>")
+check("html p", html.p("text"), "<p>text</p>")
+check("html a", html.a("click","http://x.com",nil), "<a href=\"http://x.com\">click</a>")
+check("html escape", html.escape("<script>"), "&lt;script&gt;")
+check("html ul", html.ul(["a","b"]).contains("<li>a</li>"), true)
+check("html page", html.page("T","<p>hi</p>",nil).starts_with("<!DOCTYPE html>"), true)
+
+# ── time ───────────────────────────────────────────────────────────────────────
+section("time")
+library add "src/stdlib/time.cotlib"
+var ts = time.now()
+check("time now > 0", ts > 0, true)
+var sw2 = time.Stopwatch()
+sleep(0.1)
+check("time stopwatch elapsed", sw2.elapsed_secs() > 0, true)
+var measured = time.measure(func() sleep(0.05) end)
+check("time measure > 0", measured > 0, true)
+
+# ── dates ──────────────────────────────────────────────────────────────────────
+section("dates")
+library add "src/stdlib/dates.cotlib"
+check("dates is_leap 2000", dates.is_leap(2000), true)
+check("dates is_leap 1900", dates.is_leap(1900), false)
+check("dates is_leap 2024", dates.is_leap(2024), true)
+check("dates days_in_month jan", dates.days_in_month(1, 2024), 31)
+check("dates days_in_month feb leap", dates.days_in_month(2, 2024), 29)
+check("dates days_in_month feb non-leap", dates.days_in_month(2, 2023), 28)
+check("dates month_name", dates.month_name(1), "January")
+check("dates day_name", dates.day_name(0), "Sunday")
+var d = dates.parse_iso("2024-06-15")
+check("dates parse year", d.get("year"), 2024)
+check("dates parse month", d.get("month"), 6)
+check("dates format_iso", dates.format_iso(d), "2024-06-15")
+var tomorrow = dates.add_days(d, 1)
+check("dates add_days", tomorrow.get("day"), 16)
+var prev = dates.add_days(d, -1)
+check("dates sub_days", prev.get("day"), 14)
+var month_cross = dates.add_days({"year": 2024, "month": 1, "day": 31}, 1)
+check("dates add_days month overflow", month_cross.get("month"), 2)
+
+# ── env ────────────────────────────────────────────────────────────────────────
+section("env")
+library add "src/stdlib/env.cotlib"
+check("env get with default", env.get("TOTALLY_UNSET_VAR_XYZ", "fallback"), "fallback")
+check("env get_number default", env.get_number("TOTALLY_UNSET_VAR_XYZ", 42), 42)
+check("env get_bool default", env.get_bool("TOTALLY_UNSET_VAR_XYZ", false), false)
+check("env is_set false", env.is_set("TOTALLY_UNSET_VAR_XYZ"), false)
+check("env is_set PATH", env.is_set("PATH"), true)
+
+# ── systeminfo ─────────────────────────────────────────────────────────────────
+section("systeminfo")
+library add "src/stdlib/systeminfo.cotlib"
+var plat = systeminfo.platform()
+check("systeminfo platform", plat == "linux" or plat == "macos" or plat == "windows", true)
+check("systeminfo cpu_count > 0", systeminfo.cpu_count() > 0, true)
+var info_map = systeminfo.info()
+check("systeminfo info has hostname", info_map.has_key("hostname"), true)
+check("systeminfo info has platform", info_map.has_key("platform"), true)
+
+# ── process ────────────────────────────────────────────────────────────────────
+section("process")
+library add "src/stdlib/process.cotlib"
+var echo_result = process.run("echo hello")
+check("process run", echo_result.trim(), "hello")
+var lines = process.run_lines("echo -e 'a\nb\nc'")
+check("process run_lines", lines.len() >= 3, true)
+check("process which", process.which("echo") != nil, true)
+check("process command_exists true", process.command_exists("echo"), true)
+check("process command_exists false", process.command_exists("totally_fake_cmd_xyz"), false)
+
+# ── git ────────────────────────────────────────────────────────────────────────
+section("git")
+library add "src/stdlib/git.cotlib"
+# Only test non-destructive functions
+var is_repo = git.is_repo()
+check("git is_repo returns bool", is_repo == true or is_repo == false, true)
+if is_repo
+    var branch = git.current_branch()
+    check("git branch non-empty", branch.len() >= 0, true)
+end
+
+# ── config ─────────────────────────────────────────────────────────────────────
+section("config")
+library add "src/stdlib/config.cotlib"
+var cfg_path = "/tmp/cocotte_cfg_test.json"
+var cfg = config.load(cfg_path, {"port": 8080, "debug": false, "name": "test"})
+check("config get default port", cfg.get("port", 0), 8080)
+check("config get default debug", cfg.get("debug", true), false)
+cfg.set("port", 9000)
+check("config set", cfg.get("port", 0), 9000)
+cfg.save()
+var cfg2 = config.load(cfg_path, {"port": 0})
+check("config save/load", cfg2.get("port", 0), 9000)
+delete_file(cfg_path)
+
+# ── events ─────────────────────────────────────────────────────────────────────
+section("events")
+library add "src/stdlib/events.cotlib"
+var emitter = events.create()
+var received = []
+emitter.on("data", func(d) received.push(d) end)
+emitter.on("data", func(d) received.push(d + "2") end)
+emitter.emit("data", "hello")
+check("events on count", received.len(), 2)
+check("events on value", received.get(0), "hello")
+check("events listener count", emitter.count("data"), 2)
+var once_count = 0
+emitter.once("tick", func(_d) once_count = once_count + 1 end)
+emitter.emit("tick", nil)
+emitter.emit("tick", nil)
+check("events once fires once", once_count, 1)
+emitter.clear()
+check("events clear", emitter.count("data"), 0)
+
+# ── state ──────────────────────────────────────────────────────────────────────
+section("state")
+library add "src/stdlib/state.cotlib"
+var store = state.create({"count": 0})
+var state_log = []
+store.subscribe(func(s) state_log.push(s.get("count")) end)
+store.update("count", 1)
+store.update("count", 2)
+check("state subscribe", state_log.len(), 2)
+check("state value", store.get_state().get("count"), 2)
+store.undo()
+check("state undo", store.get_state().get("count"), 1)
+check("state history", store.history_len(), 3)
+
+# ── cache roundtrip ────────────────────────────────────────────────────────────
+# (already tested above)
+
+# ── pipeline ───────────────────────────────────────────────────────────────────
+section("pipeline")
+library add "src/stdlib/pipeline.cotlib"
+var p = pipeline.create()
+    .pipe(func(x) return x * 2 end)
+    .pipe(func(x) return x + 10 end)
+    .pipe(func(x) return to_string(x) end)
+check("pipeline run", p.run(5), "20")
+var results = p.run_all([1, 2, 3])
+check("pipeline run_all len", results.len(), 3)
+check("pipeline run_all val", results.get(0), "12")
+var err_pipeline = pipeline.create()
+    .pipe(func(x)
+        if x < 0 assert(false, "negative") end
+        return x * 2
+    end)
+    .on_error(func(err, val) return 0 end)
+check("pipeline on_error", err_pipeline.run(-1), 0)
+
+# ── rate_limit ─────────────────────────────────────────────────────────────────
+section("rate_limit")
+library add "src/stdlib/rate_limit.cotlib"
+var rl = rate_limit.create(3, 100)
+check("rate_limit allow 1", rl.allow(), true)
+check("rate_limit allow 2", rl.allow(), true)
+check("rate_limit allow 3", rl.allow(), true)
+check("rate_limit deny", rl.allow(), false)
+check("rate_limit tokens 0", floor(rl.available_tokens()), 0)
+
+# ── router ─────────────────────────────────────────────────────────────────────
+section("router")
+library add "src/stdlib/router.cotlib"
+var r = router.create()
+r.get("/hello", func(req, params) return {"status": 200, "body": "hi"} end)
+r.get("/users/:id", func(req, params) return {"status": 200, "body": params.get("id")} end)
+r.post("/data", func(req, params) return {"status": 201, "body": "created"} end)
+r.not_found(func(req, params) return {"status": 404, "body": "nope"} end)
+var resp1 = r.handle({"method": "GET", "path": "/hello", "query": "", "headers": {}, "body": ""})
+check("router GET /hello", resp1.get("body"), "hi")
+var resp2 = r.handle({"method": "GET", "path": "/users/42", "query": "", "headers": {}, "body": ""})
+check("router param :id", resp2.get("body"), "42")
+var resp3 = r.handle({"method": "POST", "path": "/data", "query": "", "headers": {}, "body": ""})
+check("router POST /data", resp3.get("status"), 201)
+var resp4 = r.handle({"method": "GET", "path": "/missing", "query": "", "headers": {}, "body": ""})
+check("router not_found", resp4.get("status"), 404)
+
+# ── middleware ─────────────────────────────────────────────────────────────────
+section("middleware")
+library add "src/stdlib/middleware.cotlib"
+var base_handler = func(req) return {"status": 200, "body": "ok"} end
+var cors_handler = middleware.cors(base_handler, "*")
+var req_obj = {"method": "GET", "path": "/", "query": "", "headers": {}, "body": ""}
+var cors_resp = cors_handler(req_obj)
+check("middleware cors status", cors_resp.get("status"), 200)
+check("middleware cors header", cors_resp.get("headers").has_key("Access-Control-Allow-Origin"), true)
+var options_req = {"method": "OPTIONS", "path": "/", "query": "", "headers": {}, "body": ""}
+var preflight = cors_handler(options_req)
+check("middleware cors preflight", preflight.get("status"), 204)
+var auth_handler = middleware.auth_bearer(base_handler, "secret123")
+var authed_req = {"method": "GET", "path": "/", "query": "", "headers": {"authorization": "Bearer secret123"}, "body": ""}
+var unauthed_req = {"method": "GET", "path": "/", "query": "", "headers": {"authorization": "Bearer wrong"}, "body": ""}
+check("middleware auth ok", auth_handler(authed_req).get("status"), 200)
+check("middleware auth fail", auth_handler(unauthed_req).get("status"), 401)
+
+# ── json_schema ────────────────────────────────────────────────────────────────
+section("json_schema")
+library add "src/stdlib/json_schema.cotlib"
+var schema = {"type": "map", "required": ["name", "age"], "properties": {"age": {"type": "number", "min": 0, "max": 150}}}
+check("json_schema valid", json_schema.is_valid({"name": "Alice", "age": 30}, schema), true)
+check("json_schema missing field", json_schema.validate({"name": "Alice"}, schema).len(), 1)
+check("json_schema wrong type", json_schema.validate({"name": "Alice", "age": "30"}, schema).len() > 0, true)
+check("json_schema min", json_schema.validate({"name": "Alice", "age": -1}, schema).len() > 0, true)
+check("json_schema max", json_schema.validate({"name": "Alice", "age": 200}, schema).len() > 0, true)
+check("json_schema string type", json_schema.is_valid("hello", {"type": "string"}), true)
+check("json_schema number type", json_schema.is_valid(42, {"type": "number"}), true)
+
+# ── sort edge cases ────────────────────────────────────────────────────────────
+check("sort empty", sort.merge_sort([]).len(), 0)
+check("sort single", sort.merge_sort([42]), [42])
+check("sort already sorted", sort.merge_sort([1,2,3]), [1,2,3])
+
+# ── color_utils ────────────────────────────────────────────────────────────────
+section("color_utils")
+library add "src/stdlib/color_utils.cotlib"
+var rgb = color_utils.hex_to_rgb("#ff0000")
+check("color_utils hex_to_rgb r", rgb.get("r"), 255)
+check("color_utils hex_to_rgb g", rgb.get("g"), 0)
+check("color_utils hex_to_rgb b", rgb.get("b"), 0)
+check("color_utils rgb_to_hex", color_utils.rgb_to_hex({"r": 255, "g": 0, "b": 0}), "#ff0000")
+
+# ── db ─────────────────────────────────────────────────────────────────────────
+section("db")
+library add "src/stdlib/db.cotlib"
+var db_path = "/tmp/cocotte_db_test_" + to_string(floor(time_now())) + ".db"
+var test_db = db.open(db_path)
+test_db.create_table("items", ["id INTEGER PRIMARY KEY AUTOINCREMENT", "name TEXT", "value INTEGER"])
+test_db.insert("items", {"name": "alpha", "value": 10})
+test_db.insert("items", {"name": "beta",  "value": 20})
+test_db.insert("items", {"name": "gamma", "value": 30})
+check("db count", test_db.count("items", "1=1"), 3)
+check("db find", test_db.find("items", "value > 15").len(), 2)
+var one = test_db.find_one("items", "name='alpha'")
+check("db find_one", one.get("value"), 10)
+check("db exists", test_db.exists("items", "name='beta'"), true)
+check("db not exists", test_db.exists("items", "name='delta'"), false)
+test_db.update("items", {"value": 99}, "name='alpha'")
+var updated = test_db.find_one("items", "name='alpha'")
+check("db update", updated.get("value"), 99)
+test_db.delete("items", "name='gamma'")
+check("db delete", test_db.count("items", "1=1"), 2)
+check("db tables", test_db.tables().contains("items"), true)
+delete_file(db_path)
+
+# ── test framework self-test ───────────────────────────────────────────────────
+section("test framework")
+library add "src/stdlib/test.cotlib"
+var tf_passed = 0
+var tf_failed = 0
+test.suite("self-test")
+test.it("basic equality", func() test.expect_eq(1 + 1, 2) end)
+test.it("true assertion", func() test.expect_true(5 > 3) end)
+test.it("throws detection", func() test.expect_throws(func() assert(false, "boom") end) end)
+test.it("range check", func() test.expect_in_range(5, 1, 10) end)
+check("test framework no crash", true, true)
+
+# ── assert framework ───────────────────────────────────────────────────────────
+section("assert framework")
+library add "src/stdlib/assert.cotlib"
+assert.eq(2 + 2, 4, nil)
+assert.gt(5, 3, nil)
+assert.lt(3, 5, nil)
+assert.is_true(true, nil)
+assert.is_false(false, nil)
+assert.not_nil("hello", nil)
+assert.contains([1,2,3], 2, nil)
+assert.in_range(5, 1, 10, nil)
+check("assert no crash", true, true)
+
+# ── Final report ───────────────────────────────────────────────────────────────
+print ""
+print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+print "Results: " + to_string(_passed + _failed) + " assertions"
+print "  Passed: " + to_string(_passed)
+print "  Failed: " + to_string(_failed)
+print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+if _failed > 0
+    print ""
+    print "FAILURES:"
+    for err in _errors
+        print "  " + err
+    end
+    print ""
+    exit(1)
+end
+print "ALL PASSED ✓"

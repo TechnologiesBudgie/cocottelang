@@ -1,0 +1,74 @@
+# set — Unique-element set data structure
+
+class Set
+    func init()
+        self.data = {}
+    end
+    func add(item)
+        self.data.set(to_string(item), item)
+    end
+    func remove(item)
+        # Rebuild without item
+        var new_data = {}
+        var key = to_string(item)
+        for k in self.data.keys()
+            if k != key
+                new_data.set(k, self.data.get(k))
+            end
+        end
+        self.data = new_data
+    end
+    func has(item)
+        return self.data.has_key(to_string(item))
+    end
+    func size()
+        return self.data.len()
+    end
+    func is_empty()
+        return self.data.len() == 0
+    end
+    func to_list()
+        return self.data.values()
+    end
+    func clear()
+        self.data = {}
+    end
+    func union(other)
+        var result = Set()
+        for item in self.to_list()
+            result.add(item)
+        end
+        for item in other.to_list()
+            result.add(item)
+        end
+        return result
+    end
+    func intersection(other)
+        var result = Set()
+        for item in self.to_list()
+            if other.has(item)
+                result.add(item)
+            end
+        end
+        return result
+    end
+    func difference(other)
+        var result = Set()
+        for item in self.to_list()
+            if not other.has(item)
+                result.add(item)
+            end
+        end
+        return result
+    end
+end
+
+func create() return Set() end
+
+func from_list(lst)
+    var s = Set()
+    for item in lst
+        s.add(item)
+    end
+    return s
+end

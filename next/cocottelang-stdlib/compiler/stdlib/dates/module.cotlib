@@ -1,0 +1,84 @@
+# dates — Date arithmetic and formatting
+
+# Days in each month (non-leap year).
+var _days_in_month = [31,28,31,30,31,30,31,31,30,31,30,31]
+var _month_names   = ["January","February","March","April","May","June",
+                      "July","August","September","October","November","December"]
+var _day_names     = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
+
+func is_leap(year)
+    return (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
+end
+
+func days_in_month(month, year)
+    var d = _days_in_month.get(month - 1)
+    if month == 2 and is_leap(year) d = 29 end
+    return d
+end
+
+func month_name(month)
+    return _month_names.get(month - 1)
+end
+
+func day_name(day_of_week)
+    return _day_names.get(day_of_week % 7)
+end
+
+# Today as {year, month, day} map via os.exec.
+func today()
+    module add "os"
+    var d = os.exec("date '+%Y %m %d'").trim().split(" ")
+    return {"year": to_number(d.get(0)), "month": to_number(d.get(1)), "day": to_number(d.get(2))}
+end
+
+# Format a date map as "YYYY-MM-DD".
+func format_iso(date)
+    var y = to_string(date.get("year")).pad_left(4, "0")
+    var m = to_string(date.get("month")).pad_left(2, "0")
+    var d = to_string(date.get("day")).pad_left(2, "0")
+    return y + "-" + m + "-" + d
+end
+
+# Format a date map as "Month DD, YYYY".
+func format_long(date)
+    return month_name(date.get("month")) + " " + to_string(date.get("day")) + ", " + to_string(date.get("year"))
+end
+
+# Parse "YYYY-MM-DD" into a date map.
+func parse_iso(s)
+    var parts = s.split("-")
+    return {"year": to_number(parts.get(0)), "month": to_number(parts.get(1)), "day": to_number(parts.get(2))}
+end
+
+# Add days to a date map.
+func add_days(date, n)
+    var day   = date.get("day") + n
+    var month = date.get("month")
+    var year  = date.get("year")
+    while day > days_in_month(month, year)
+        day = day - days_in_month(month, year)
+        month = month + 1
+        if month > 12
+            month = 1
+            year = year + 1
+        end
+    end
+    while day < 1
+        month = month - 1
+        if month < 1
+            month = 12
+            year = year - 1
+        end
+        day = day + days_in_month(month, year)
+    end
+    return {"year": year, "month": month, "day": day}
+end
+
+# Difference in days between two date maps.
+func diff_days(a, b)
+    module add "os"
+    var da = format_iso(a)
+    var db = format_iso(b)
+    var result = os.exec("echo $(( ( $(date -d '" + da + "' '+%s' 2>/dev/null) - $(date -d '" + db + "' '+%s' 2>/dev/null) ) / 86400 )) 2>/dev/null").trim()
+    try return to_number(result) catch err return 0 end
+end

@@ -1,0 +1,85 @@
+# color_utils — Color conversion and manipulation
+
+# Convert hex "#RRGGBB" to {r, g, b} map.
+func hex_to_rgb(hex)
+    var h = hex.replace("#", "")
+    var r = to_number("0x" + h.slice(0, 2))
+    var g = to_number("0x" + h.slice(2, 4))
+    var b = to_number("0x" + h.slice(4, 6))
+    # Fallback: manual hex parse
+    var hex_chars = "0123456789abcdef"
+    if r == 0 and g == 0 and b == 0 and h != "000000"
+        func hex_val(c)
+            return hex_chars.index_of(c.lower())
+        end
+        r = hex_val(h.get(0)) * 16 + hex_val(h.get(1))
+        g = hex_val(h.get(2)) * 16 + hex_val(h.get(3))
+        b = hex_val(h.get(4)) * 16 + hex_val(h.get(5))
+    end
+    return {"r": r, "g": g, "b": b}
+end
+
+# Convert {r, g, b} to "#RRGGBB".
+func rgb_to_hex(rgb)
+    func byte_to_hex(n)
+        var chars = "0123456789abcdef"
+        var hi = floor(divide n by 16)
+        var lo = n % 16
+        return chars.get(hi) + chars.get(lo)
+    end
+    return "#" + byte_to_hex(rgb.get("r")) + byte_to_hex(rgb.get("g")) + byte_to_hex(rgb.get("b"))
+end
+
+# Convert RGB (0–255) to HSL (h: 0–360, s: 0–1, l: 0–1).
+func rgb_to_hsl(rgb)
+    var r = divide rgb.get("r") by 255
+    var g = divide rgb.get("g") by 255
+    var b = divide rgb.get("b") by 255
+    var max_c = max(max(r, g), b)
+    var min_c = min(min(r, g), b)
+    var l = divide (max_c + min_c) by 2
+    if max_c == min_c
+        return {"h": 0, "s": 0, "l": l}
+    end
+    var d = max_c - min_c
+    var s = d
+    if l > 0.5
+        s = divide d by (2 - max_c - min_c)
+    else
+        s = divide d by (max_c + min_c)
+    end
+    var h = 0
+    if max_c == r h = divide (g - b) by d end
+    if max_c == g h = 2 + divide (b - r) by d end
+    if max_c == b h = 4 + divide (r - g) by d end
+    h = (h * 60 + 360) % 360
+    return {"h": h, "s": s, "l": l}
+end
+
+# Lighten a hex color by amount (0–1).
+func lighten(hex, amount)
+    var rgb = hex_to_rgb(hex)
+    var r = floor(min(255, rgb.get("r") + 255 * amount))
+    var g = floor(min(255, rgb.get("g") + 255 * amount))
+    var b = floor(min(255, rgb.get("b") + 255 * amount))
+    return rgb_to_hex({"r": r, "g": g, "b": b})
+end
+
+# Darken a hex color by amount (0–1).
+func darken(hex, amount)
+    var rgb = hex_to_rgb(hex)
+    var r = floor(max(0, rgb.get("r") - 255 * amount))
+    var g = floor(max(0, rgb.get("g") - 255 * amount))
+    var b = floor(max(0, rgb.get("b") - 255 * amount))
+    return rgb_to_hex({"r": r, "g": g, "b": b})
+end
+
+# Mix two hex colors with ratio (0=all a, 1=all b).
+func mix(hex_a, hex_b, ratio)
+    var a = hex_to_rgb(hex_a)
+    var b = hex_to_rgb(hex_b)
+    var r = floor(a.get("r") * (1 - ratio) + b.get("r") * ratio)
+    var g = floor(a.get("g") * (1 - ratio) + b.get("g") * ratio)
+    var bv= floor(a.get("b") * (1 - ratio) + b.get("b") * ratio)
+    return rgb_to_hex({"r": r, "g": g, "b": bv})
+end

@@ -1,0 +1,113 @@
+# path — Path manipulation utilities
+
+# Join path components with the OS separator.
+func join(a, b)
+    var a2 = a.trim_right()
+    if a2.ends_with("/")
+        return a2 + b
+    end
+    return a2 + "/" + b
+end
+
+# Join multiple components.
+func join_many(parts)
+    var result = parts.get(0)
+    var i = 1
+    while i < parts.len()
+        result = join(result, parts.get(i))
+        i = i + 1
+    end
+    return result
+end
+
+# Return the file extension (without dot), or "" if none.
+func ext(path)
+    var parts = path.split(".")
+    if parts.len() < 2
+        return ""
+    end
+    return parts.last()
+end
+
+# Return filename without directory.
+func basename(path)
+    return path.split("/").last()
+end
+
+# Return directory component of a path.
+func dirname(path)
+    var parts = path.split("/")
+    if parts.len() <= 1
+        return "."
+    end
+    parts.pop()
+    var result = parts.join("/")
+    if result == ""
+        return "/"
+    end
+    return result
+end
+
+# Return filename without extension.
+func stem(path)
+    var base = basename(path)
+    var dot = base.index_of(".")
+    if dot < 0
+        return base
+    end
+    return base.slice(0, dot)
+end
+
+# Normalize double slashes and trailing slashes.
+func normalize(path)
+    var result = path
+    while result.contains("//")
+        result = result.replace("//", "/")
+    end
+    if result.len() > 1 and result.ends_with("/")
+        result = result.slice(0, result.len() - 1)
+    end
+    return result
+end
+
+# Return true if path is absolute (starts with /).
+func is_absolute(path)
+    return path.starts_with("/")
+end
+
+# Return true if path is relative.
+func is_relative(path)
+    return not path.starts_with("/")
+end
+
+# Split path into [dirname, basename].
+func split(path)
+    return [dirname(path), basename(path)]
+end
+
+# Change the extension of a file path.
+func with_ext(path, new_ext)
+    var d = dirname(path)
+    var s = stem(basename(path))
+    if new_ext.starts_with(".")
+        return join(d, s + new_ext)
+    end
+    return join(d, s + "." + new_ext)
+end
+
+# Return the home directory from HOME env var.
+func home()
+    var h = env_get("HOME")
+    if h == nil
+        return "/root"
+    end
+    return h
+end
+
+# Expand ~ at the start of a path to the home directory.
+func expand_home(path)
+    if path.starts_with("~")
+        return home() + path.slice(1, path.len())
+    end
+    return path
+end

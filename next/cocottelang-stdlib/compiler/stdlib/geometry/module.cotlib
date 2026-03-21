@@ -1,0 +1,65 @@
+# geometry — 2D/3D geometric calculations
+
+func distance_2d(x1, y1, x2, y2)
+    return sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1))
+end
+
+func distance_3d(x1, y1, z1, x2, y2, z2)
+    return sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1) + (z2-z1)*(z2-z1))
+end
+
+func circle_area(r)
+    module add "math"
+    return math.PI * r * r
+end
+
+func circle_circumference(r)
+    module add "math"
+    return 2 * math.PI * r
+end
+
+func rect_area(w, h)    return w * h end
+func rect_perimeter(w, h) return 2 * (w + h) end
+
+func triangle_area(base, height) return divide (base * height) by 2 end
+
+func triangle_area_sides(a, b, c)
+    var s = divide (a + b + c) by 2
+    return sqrt(s * (s-a) * (s-b) * (s-c))
+end
+
+func to_radians(degrees)
+    module add "math"
+    return degrees * divide math.PI by 180
+end
+
+func to_degrees(radians)
+    module add "math"
+    return radians * divide 180 by math.PI
+end
+
+# Dot product of two 2D vectors.
+func dot_2d(ax, ay, bx, by) return ax*bx + ay*by end
+
+# Cross product magnitude of two 2D vectors.
+func cross_2d(ax, ay, bx, by) return ax*by - ay*bx end
+
+# Normalize a 2D vector.
+func normalize_2d(x, y)
+    var len = sqrt(x*x + y*y)
+    if len == 0 return [0, 0] end
+    return [divide x by len, divide y by len]
+end
+
+# Linear interpolation.
+func lerp(a, b, t) return a + (b - a) * t end
+
+# Check if point (px, py) is inside rectangle.
+func point_in_rect(px, py, rx, ry, rw, rh)
+    return px >= rx and px <= rx + rw and py >= ry and py <= ry + rh
+end
+
+# Check if two circles overlap.
+func circles_overlap(x1, y1, r1, x2, y2, r2)
+    return distance_2d(x1, y1, x2, y2) < r1 + r2
+end

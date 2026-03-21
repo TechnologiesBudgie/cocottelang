@@ -1,0 +1,44 @@
+# deque — Double-ended queue
+
+class Deque
+    func init()
+        self.items = []
+    end
+    func push_front(item)
+        var new_items = [item]
+        new_items.extend(self.items)
+        self.items = new_items
+    end
+    func push_back(item)
+        self.items.push(item)
+    end
+    func pop_front()
+        if self.is_empty() return nil end
+        var item = self.items.get(0)
+        self.items = self.items.slice(1, self.items.len())
+        return item
+    end
+    func pop_back()
+        if self.is_empty() return nil end
+        return self.items.pop()
+    end
+    func front()
+        if self.is_empty() return nil end
+        return self.items.get(0)
+    end
+    func back()
+        if self.is_empty() return nil end
+        return self.items.last()
+    end
+    func is_empty()
+        return self.items.is_empty()
+    end
+    func size()
+        return self.items.len()
+    end
+    func to_list()
+        return self.items.copy()
+    end
+end
+
+func create() return Deque() end

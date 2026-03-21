@@ -1,0 +1,91 @@
+# cli — Command-line interface utilities
+
+# Parse a raw arg string into a map of flags and positional args.
+# Supports --key=value, --key value, --flag, -f, and positional args.
+func parse(args_str)
+    var result = {"flags": {}, "args": []}
+    if args_str == nil or args_str.trim() == ""
+        return result
+    end
+    var tokens = args_str.trim().split(" ").filter(func(t) return t.len() > 0 end)
+    var i = 0
+    while i < tokens.len()
+        var tok = tokens.get(i)
+        if tok.starts_with("--")
+            var inner = tok.slice(2, tok.len())
+            if inner.contains("=")
+                var kv = inner.split("=")
+                result.get("flags").set(kv.get(0), kv.slice(1, kv.len()).join("="))
+            elif i + 1 < tokens.len() and not tokens.get(i + 1).starts_with("-")
+                result.get("flags").set(inner, tokens.get(i + 1))
+                i = i + 1
+            else
+                result.get("flags").set(inner, true)
+            end
+        elif tok.starts_with("-") and tok.len() == 2
+            var key = tok.slice(1, 2)
+            if i + 1 < tokens.len() and not tokens.get(i + 1).starts_with("-")
+                result.get("flags").set(key, tokens.get(i + 1))
+                i = i + 1
+            else
+                result.get("flags").set(key, true)
+            end
+        else
+            result.get("args").push(tok)
+        end
+        i = i + 1
+    end
+    return result
+end
+
+# Get a flag value with a default.
+func flag(parsed, name, default_val)
+    if parsed.get("flags").has_key(name)
+        return parsed.get("flags").get(name)
+    end
+    return default_val
+end
+
+# Get a positional argument at index, or default.
+func arg(parsed, index, default_val)
+    var args = parsed.get("args")
+    if index < args.len()
+        return args.get(index)
+    end
+    return default_val
+end
+
+# Print a usage string and exit.
+func usage(program, description, options)
+    print "Usage: " + program
+    print description
+    print ""
+    print "Options:"
+    for opt in options
+        print "  " + opt
+    end
+    exit(0)
+end
+
+# Ask the user to confirm (y/n).
+func confirm(prompt)
+    var answer = input(prompt + " [y/N] ")
+    return answer.lower().trim() == "y"
+end
+
+# Read a value from stdin with a prompt, reprompting if empty.
+func prompt_required(prompt_str)
+    var val = ""
+    while val.trim() == ""
+        val = input(prompt_str)
+    end
+    return val.trim()
+end
+
+# Print a progress bar: progress is 0.0–1.0.
+func progress_bar(label, progress, width)
+    var filled = floor(progress * width)
+    var empty  = width - filled
+    var bar = "[" + "=".repeat(filled) + " ".repeat(empty) + "]"
+    print label + " " + bar + " " + to_string(floor(progress * 100)) + "%"
+end

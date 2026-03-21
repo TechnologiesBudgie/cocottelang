@@ -1,0 +1,51 @@
+# process — Process management utilities
+
+func run(cmd)
+    module add "os"
+    return os.exec(cmd)
+end
+
+func run_lines(cmd)
+    module add "os"
+    return os.exec(cmd).trim().split_lines()
+end
+
+func pid()
+    module add "os"
+    return to_number(os.exec("echo $$").trim())
+end
+
+func kill(pid_val)
+    module add "os"
+    os.exec("kill " + to_string(pid_val) + " 2>/dev/null")
+end
+
+func is_running(name)
+    module add "os"
+    var result = os.exec("pgrep -x " + name + " 2>/dev/null").trim()
+    return result != ""
+end
+
+func list_processes()
+    module add "os"
+    var lines = os.exec("ps aux 2>/dev/null").trim().split_lines()
+    if lines.len() <= 1 return [] end
+    return lines.slice(1, lines.len())
+end
+
+func which(cmd)
+    module add "os"
+    var result = os.exec("which " + cmd + " 2>/dev/null").trim()
+    if result == "" return nil end
+    return result
+end
+
+func command_exists(cmd)
+    return which(cmd) != nil
+end
+
+func shell(cmd, shell_path)
+    module add "os"
+    if shell_path == nil shell_path = "/bin/sh" end
+    return os.exec(shell_path + " -c '" + cmd + "'")
+end
