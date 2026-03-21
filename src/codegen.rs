@@ -150,7 +150,6 @@ impl BuildOptions {
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
-<<<<<<< HEAD
 
 // ── Pretty step printer (cargo-style) ────────────────────────────────────────
 
@@ -375,158 +374,6 @@ fn build_for_target(
         Err(_) => {
             step_warn("Warning", "cargo not found — emitting source bundle");
             substep("install Rust from https://rustup.rs then retry");
-=======
-
-pub fn build_project(opts: &BuildOptions) -> Result<()> {
-    println!("Building {}...", opts.project_name.bold());
-
-    // Validate source before touching the filesystem.
-    let source = fs::read_to_string(&opts.source_path)?;
-    print!("  Parsing source... ");
-    let mut lexer = crate::lexer::Lexer::new(&source);
-    let tokens = lexer.tokenize().map_err(|e| {
-        CocotteError::build_err(&format!("Syntax error: {}", e))
-    })?;
-    let mut parser = crate::parser::Parser::new(tokens);
-    parser.parse().map_err(|e| {
-        CocotteError::build_err(&format!("Parse error: {}", e))
-    })?;
-    println!("{}", "ok".green());
-
-    fs::create_dir_all(&opts.output_dir)?;
-
-    for (os, arch) in &opts.targets {
-        build_for_target(opts, &source, os, arch)?;
-    }
-
-    println!("\nBuild complete. Output: {}", opts.output_dir.display().to_string().cyan());
-    Ok(())
-}
-
-// ── Per-target build ──────────────────────────────────────────────────────────
-
-fn build_for_target(
-    opts:   &BuildOptions,
-    source: &str,
-    os:     &TargetOS,
-    arch:   &TargetArch,
-) -> Result<()> {
-    let label = match (os, arch) {
-        (TargetOS::Current, TargetArch::Current) => "native".to_string(),
-        _ => format!("{}-{}", os.name(), arch.name()),
-    };
-    println!("  target: {}", label.bold());
-
-    let triple_opt = os.rust_target(arch);
-    if triple_opt.is_none() {
-        eprintln!(
-            "    warning: unsupported target combination {}/{}. Emitting source bundle.",
-            os.name(), arch.name()
-        );
-        return emit_source_bundle(opts, source, &label);
-    }
-    let triple = triple_opt.unwrap();
-
-    // Locate the cocotte compiler's own source directory so we can copy it
-    // into the generated workspace. We find it by resolving the path to the
-    // running executable and walking up to the workspace root.
-    let rt_src = locate_runtime_src();
-
-    let tmp_dir = std::env::temp_dir()
-        .join(format!("cocotte_build_{}_{}", opts.project_name, label));
-    fs::create_dir_all(&tmp_dir)?;
-
-    if opts.verbose {
-        println!("    [codegen] workspace : {}", tmp_dir.display());
-        if !triple.is_empty() {
-            println!("    [codegen] triple    : {}", triple);
-        }
-    }
-
-    // Write the workspace Cargo.toml
-    fs::write(tmp_dir.join("Cargo.toml"), workspace_cargo_toml())?;
-
-    match rt_src {
-        Some(rt_path) => {
-            // ── Embedded runtime strategy ────────────────────────────────────
-            // Copy the cocotte source tree as a library crate, generate a thin
-            // runner binary that calls into it.
-            setup_runtime_crate(&tmp_dir, &rt_path, opts.verbose)?;
-            setup_runner_crate(&tmp_dir, source, &opts.project_name)?;
-        }
-        None => {
-            // ── Fallback: single-crate with bundled source ───────────────────
-            // We cannot locate the runtime source, so emit a workspace with
-            // just the runner crate and a note for the user.
-            if opts.verbose {
-                println!("    [codegen] runtime source not found; using single-crate fallback");
-            }
-            setup_single_crate_fallback(&tmp_dir, source, &opts.project_name)?;
-        }
-    }
-
-    // Invoke cargo
-    let binary_name = os.binary_name(&opts.project_name, arch);
-    let out_path    = opts.output_dir.join(&binary_name);
-
-    let mut cmd = std::process::Command::new("cargo");
-    cmd.arg("build")
-       .current_dir(&tmp_dir);
-    if opts.release       { cmd.arg("--release"); }
-    if !triple.is_empty() { cmd.args(["--target", &triple]); }
-
-    // Only show cargo output in verbose mode
-    if !opts.verbose {
-        cmd.stdout(std::process::Stdio::null())
-           .stderr(std::process::Stdio::null());
-    }
-
-    if opts.verbose {
-        println!(
-            "    [codegen] cargo build{}{}",
-            if opts.release { " --release" } else { "" },
-            if !triple.is_empty() { format!(" --target {}", triple) } else { String::new() },
-        );
-    }
-
-    match cmd.status() {
-        Ok(s) if s.success() => {
-            let profile   = if opts.release { "release" } else { "debug" };
-            let base_name = if matches!(os, TargetOS::Windows) {
-                format!("{}.exe", opts.project_name)
-            } else {
-                opts.project_name.clone()
-            };
-
-            let native = tmp_dir.join("target").join(profile).join(&base_name);
-            let cross  = tmp_dir.join("target").join(&triple).join(profile).join(&base_name);
-
-            let built = if native.exists() { Some(native) }
-                        else if cross.exists() { Some(cross) }
-                        else { None };
-
-            match built {
-                Some(p) => {
-                    fs::copy(&p, &out_path)?;
-                    println!("    binary: {}", out_path.display().to_string().green());
-                }
-                None => {
-                    eprintln!("    warning: cargo succeeded but binary not found");
-                    eprintln!("    check: {}", tmp_dir.join("target").display());
-                }
-            }
-        }
-        Ok(s) => {
-            eprintln!(
-                "    warning: cargo failed (exit {}), emitting source bundle",
-                s.code().unwrap_or(-1)
-            );
-            emit_source_bundle(opts, source, &label)?;
-        }
-        Err(_) => {
-            eprintln!("    warning: cargo not found — emitting source bundle");
-            eprintln!("    Install Rust from https://rustup.rs then retry.");
->>>>>>> edc79454bf351223d85ad37a8a519b00b43cf670
             emit_source_bundle(opts, source, &label)?;
         }
     }
@@ -534,7 +381,6 @@ fn build_for_target(
     Ok(())
 }
 
-<<<<<<< HEAD
 // ── Live cargo progress bar ───────────────────────────────────────────────────
 //
 // In normal mode  : runs cargo with --message-format=json-render-diagnostics,
@@ -658,17 +504,6 @@ resolver = "2"
 "#.to_string()
 }
 
-=======
-// ── Workspace helpers ─────────────────────────────────────────────────────────
-
-fn workspace_cargo_toml() -> String {
-    r#"[workspace]
-members = ["runner"]
-resolver = "2"
-"#.to_string()
-}
-
->>>>>>> edc79454bf351223d85ad37a8a519b00b43cf670
 /// Try to find the Cocotte compiler's `src/` directory on disk.
 /// Looks next to the running binary, then next to the current exe.
 fn locate_runtime_src() -> Option<PathBuf> {
@@ -709,15 +544,11 @@ fn setup_runtime_crate(tmp_dir: &Path, rt_src: &Path, verbose: bool) -> Result<(
     // Copy every .rs file from the runtime src/
     let rs_files: Vec<_> = fs::read_dir(rt_src)?
         .filter_map(|e| e.ok())
-<<<<<<< HEAD
         .filter(|e| {
             let p = e.path();
             p.extension().map(|x| x == "rs").unwrap_or(false)
                 && p.file_name().map(|n| n != "main.rs").unwrap_or(true)
         })
-=======
-        .filter(|e| e.path().extension().map(|x| x == "rs").unwrap_or(false))
->>>>>>> edc79454bf351223d85ad37a8a519b00b43cf670
         .collect();
 
     for entry in &rs_files {
@@ -726,11 +557,7 @@ fn setup_runtime_crate(tmp_dir: &Path, rt_src: &Path, verbose: bool) -> Result<(
     }
 
     if verbose {
-<<<<<<< HEAD
         substep(&format!("copied {} runtime source file(s)", rs_files.len()));
-=======
-        println!("    [codegen] copied {} runtime files", rs_files.len());
->>>>>>> edc79454bf351223d85ad37a8a519b00b43cf670
     }
 
     // lib.rs re-exports everything public from main.rs's mods
@@ -750,19 +577,12 @@ path = "src/lib.rs"
 
 [dependencies]
 serde      = { version = "1", features = ["derive"] }
-<<<<<<< HEAD
 serde_json = "=1.0.96"
 colored    = "2"
 indexmap   = "=2.0.2"
 dirs       = "5"
 ureq       = { version = "2", features = ["json"] }
 rusqlite   = { version = "0.31", features = ["bundled"] }
-=======
-serde_json = "1"
-colored    = "2"
-indexmap   = "2"
-dirs       = "5"
->>>>>>> edc79454bf351223d85ad37a8a519b00b43cf670
 eframe     = { version = "0.29", optional = true, features = ["wgpu"] }
 egui       = { version = "0.29", optional = true }
 
@@ -888,13 +708,8 @@ strip     = true
 
 /// Generate a lib.rs that re-exports the interpreter modules.
 fn generate_lib_rs() -> String {
-<<<<<<< HEAD
     // Declare the same modules as main.rs as pub so the runner can use them.
     // charlotte is conditionally compiled — must match the [features] in Cargo.toml.
-=======
-    // Declare the same modules as main.rs, but as pub so the runner can use them.
-    // We exclude main.rs itself (it's a bin, not included in the lib).
->>>>>>> edc79454bf351223d85ad37a8a519b00b43cf670
     r#"// Auto-generated lib.rs — exposes cocotte runtime modules
 pub mod ast;
 pub mod lexer;
@@ -910,11 +725,8 @@ pub mod bytecode;
 pub mod vm;
 pub mod charlotfile;
 pub mod codegen;
-<<<<<<< HEAD
 #[cfg(feature = "gui")]
 pub mod charlotte;
-=======
->>>>>>> edc79454bf351223d85ad37a8a519b00b43cf670
 "#.to_string()
 }
 
@@ -957,7 +769,6 @@ path = "src/lib.rs"
 
 [dependencies]
 serde      = { version = "1", features = ["derive"] }
-<<<<<<< HEAD
 serde_json = "=1.0.96"
 colored    = "2"
 indexmap   = "=2.0.2"
@@ -970,12 +781,6 @@ egui       = { version = "0.29", optional = true }
 [features]
 default = ["gui"]
 gui     = ["eframe", "egui"]
-=======
-serde_json = "1"
-colored    = "2"
-indexmap   = "2"
-dirs       = "5"
->>>>>>> edc79454bf351223d85ad37a8a519b00b43cf670
 "#)?;
     }
 
@@ -1023,11 +828,7 @@ strip     = true
         format!("# {project} — Cocotte Source Bundle\n\nCompile with:\n\n```sh\ncargo build --release\n```\n\nTarget: {target}\n\nRequires a Rust toolchain: https://rustup.rs\n"),
     )?;
 
-<<<<<<< HEAD
     step("Bundling", &format!("source → {}", bundle_dir.display()));
-=======
-    println!("    source bundle: {}", bundle_dir.display().to_string().green());
->>>>>>> edc79454bf351223d85ad37a8a519b00b43cf670
     Ok(())
 }
 
