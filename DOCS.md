@@ -4,6 +4,8 @@
 
 Cocotte is a compiled and interpreted programming language with English-like syntax. It runs on Linux, Windows, macOS, and BSD across all common CPU architectures. Source files use the `.cot` extension. The same `cocotte` binary interprets, compiles, tests, and manages projects.
 
+> **New here?** Jump straight to [§2 Getting Started](#2-getting-started), run the Hello World, then come back for the full reference. The whole language fits in your head in an afternoon.
+
 ---
 
 ## Table of Contents
@@ -19,13 +21,14 @@ Cocotte is a compiled and interpreted programming language with English-like syn
 9. [Map Methods](#9-map-methods)
 10. [File I/O](#10-file-io)
 11. [Built-in Modules](#11-built-in-modules)
-12. [Libraries and Modules](#12-libraries-and-modules)
+12. [Writing Libraries and Modules](#12-writing-libraries-and-modules)
 13. [GUI — Charlotte](#13-gui--charlotte)
 14. [Charlotfile — Task Runner](#14-charlotfile--task-runner)
 15. [Millet.toml — Project Config](#15-millettoml--project-config)
 16. [Cross-Compilation](#16-cross-compilation)
 17. [Testing](#17-testing)
 18. [Complete Examples](#18-complete-examples)
+19. [Planned Modules](#19-planned-modules)
 
 ---
 
@@ -94,12 +97,22 @@ MyProject/
 ├── Charlotfile       # task runner (like Makefile, but readable)
 ├── src/
 │   └── main.cot      # program entry point
-├── libraries/        # .cotlib files (local libraries)
-├── modules/          # .cotmod files (installed modules)
+├── libraries/        # .cotlib files (local, single-project utilities)
+├── modules/          # .cotmod files (installed distributable modules)
 ├── tests/            # test files (*_test.cot)
 ├── dist/             # compiled output (created by cocotte build)
 └── .gitignore
 ```
+
+**File types at a glance:**
+
+| Extension | What it is |
+|-----------|-----------|
+| `.cot` | Regular source file |
+| `.cotlib` | Local library — single-project utilities |
+| `.cotmod` | Distributable module — shareable packages |
+| `Millet.toml` | Project config (dependencies, metadata) |
+| `Charlotfile` | Task runner (build steps, deploy commands) |
 
 ---
 
@@ -662,6 +675,15 @@ end
 
 Load any of these with `module add "name"` — no installation required.
 
+```cocotte
+module add "http"
+module add "json"
+module add "sqlite"
+module add "math"
+module add "os"
+module add "charlotte"
+```
+
 ---
 
 ### `math`
@@ -687,6 +709,30 @@ print math.abs(-42)           # 42
 print math.max(3, 7)          # 7
 print math.min(3, 7)          # 3
 ```
+
+| Function/Constant | Description |
+|-------------------|-------------|
+| `math.PI` | π |
+| `math.E` | Euler's number |
+| `math.TAU` | 2π |
+| `math.sin(n)` | Sine |
+| `math.cos(n)` | Cosine |
+| `math.tan(n)` | Tangent |
+| `math.asin(n)` | Arcsine |
+| `math.acos(n)` | Arccosine |
+| `math.atan(n)` | Arctangent |
+| `math.log(n)` | Natural log |
+| `math.log2(n)` | Log base 2 |
+| `math.log10(n)` | Log base 10 |
+| `math.exp(n)` | eⁿ |
+| `math.sqrt(n)` | Square root |
+| `math.pow(base, exp)` | Power |
+| `math.floor(n)` | Round down |
+| `math.ceil(n)` | Round up |
+| `math.round(n)` | Round to nearest |
+| `math.abs(n)` | Absolute value |
+| `math.max(a, b)` | Larger of two |
+| `math.min(a, b)` | Smaller of two |
 
 ---
 
@@ -732,7 +778,9 @@ print out
 
 ### `http`
 
-Full HTTP client backed by [ureq](https://github.com/algesten/ureq) — pure Rust, bundled TLS, no system dependencies.
+An HTTP **client** for making outbound requests — backed by [ureq](https://github.com/algesten/ureq) (pure Rust, bundled TLS, no system dependencies).
+
+> **Note:** `http` is a client, not a server. There is no `http.listen()` or `http.server()`. Use `os.exec()` to shell out to a server process, or use the Rust backend integration if you need to serve HTTP.
 
 ```cocotte
 module add "http"
@@ -766,13 +814,13 @@ http.delete("https://api.example.com/users/1")
 | Function | Description |
 |----------|-------------|
 | `http.get(url [, headers])` | GET request; returns body string |
-| `http.get_json(url [, headers])` | GET request; parses JSON response |
-| `http.post(url, body [, headers])` | POST with string body |
+| `http.get_json(url [, headers])` | GET request; parses JSON response into Cocotte value |
+| `http.post(url, body [, headers])` | POST with plain string body |
 | `http.post_json(url, value [, headers])` | POST with auto-serialized JSON body |
 | `http.put(url, body [, headers])` | PUT request |
 | `http.delete(url [, headers])` | DELETE request |
 
-`headers` is an optional map of `{"Header-Name": "value"}`. All functions return the response body as a string (except `get_json` which returns a parsed Cocotte value). Errors throw a catchable runtime error.
+`headers` is an optional map of `{"Header-Name": "value"}`. All functions return the response body as a string, except `get_json` which returns a parsed Cocotte value. Errors throw a catchable runtime error.
 
 ```cocotte
 # Error handling example
@@ -841,30 +889,6 @@ print tables.join(", ")    # users
 
 Each row map has column names as keys. Values are typed: integers and floats become `number`, text becomes `string`, NULL becomes `nil`, blobs become a hex string.
 
-```cocotte
-# Practical example — simple note store
-module add "sqlite"
-module add "json"
-
-var db = sqlite.open("notes.db")
-sqlite.exec(db, "CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, text TEXT, ts INTEGER)")
-
-func save_note(text)
-    sqlite.exec(db, "INSERT INTO notes (text, ts) VALUES ('" + text + "', " + time_now() + ")")
-end
-
-func list_notes()
-    var rows = sqlite.query(db, "SELECT * FROM notes ORDER BY ts DESC")
-    for row in rows
-        print "[" + row.get("id") + "] " + row.get("text")
-    end
-end
-
-save_note("Buy groceries")
-save_note("Fix the bug in parser.rs")
-list_notes()
-```
-
 ---
 
 ### `charlotte`
@@ -873,33 +897,36 @@ See [§13 GUI — Charlotte](#13-gui--charlotte).
 
 ---
 
-## 12. Libraries and Modules
+## 12. Writing Libraries and Modules
 
-Cocotte has two kinds of reusable code files:
+Cocotte has two kinds of reusable code files. Here is how to create each one from scratch.
 
 | | Library (`.cotlib`) | Module (`.cotmod`) |
 |--|--------------------|--------------------|
-| Loaded with | `library add "path/to/lib.cotlib"` | `module add "name"` |
+| Loaded with | `library add "libraries/mylib.cotlib"` | `module add "mymod"` |
 | Addressed by | File path (relative to project root) | Name only |
 | Lives in | `libraries/` | `modules/` |
 | Best for | Single-project utilities | Distributable packages |
 
-Both are plain Cocotte source files. The interpreter runs them and exposes every top-level definition as the namespace you call into. No `export` keyword — everything defined at the top level is exported.
+Both are plain Cocotte source files. The interpreter runs the file once and exposes every top-level definition as the namespace you call into. There is no `export` keyword — everything at the top level is automatically exported.
 
 ---
 
 ### Creating and using a library
 
 ```sh
-# Create (inside a project)
+# Inside a project — scaffolds the file and registers it in Millet.toml
 cocotte new lib mymath
-# → creates libraries/mymath.cotlib and registers it in Millet.toml
+
+# Or create the file manually:
+# libraries/mymath.cotlib
 ```
 
 Edit `libraries/mymath.cotlib`:
 
 ```cocotte
 # libraries/mymath.cotlib
+# Everything defined here is visible as mymath.xxx in the caller.
 
 func square(n)
     return n * n
@@ -912,9 +939,10 @@ end
 var PI = 3.14159265358979
 ```
 
-Use it:
+Use it from `src/main.cot`:
 
 ```cocotte
+# Path is relative to the project root, not to src/
 library add "libraries/mymath.cotlib"
 
 print mymath.square(5)    # 25
@@ -922,12 +950,13 @@ print mymath.is_even(4)   # true
 print mymath.PI           # 3.14159265358979
 ```
 
-The namespace name is the filename stem (`mymath` from `mymath.cotlib`).
+The namespace name is always the filename stem (`mymath` from `mymath.cotlib`).
 
-Install someone else's library:
+To install someone else's library into your project:
 
 ```sh
 cocotte add path/to/their_lib.cotlib
+# Copies it to libraries/ and updates Millet.toml
 ```
 
 ---
@@ -936,21 +965,42 @@ cocotte add path/to/their_lib.cotlib
 
 ```sh
 cocotte new module mymodule
-# Creates mymodule/ directory with source, tests, README
+# Creates mymodule/mymodule.cotmod
+#         mymodule/mymodule_test.cot
+#         mymodule/README.md
 ```
 
-Edit `mymodule/mymodule.cotmod`, then install into a project:
+Edit `mymodule/mymodule.cotmod`:
+
+```cocotte
+# mymodule/mymodule.cotmod
+# Modules can themselves import other modules.
+module add "json"
+
+func greet(name)
+    print "Hello from mymodule, " + name + "!"
+end
+
+func serialize(data)
+    return json.stringify(data)
+end
+```
+
+Install it into a project:
 
 ```sh
-cocotte add mymodule/mymodule.cotmod
-# Copies to modules/mymodule.cotmod, updates Millet.toml
+cd MyProject
+cocotte add ../mymodule/mymodule.cotmod
+# Copies to modules/mymodule.cotmod and updates Millet.toml
 ```
 
 Use it:
 
 ```cocotte
 module add "mymodule"
-mymodule.some_function(args)
+
+mymodule.greet("Alice")                          # Hello from mymodule, Alice!
+print mymodule.serialize({"x": 1})               # {"x":1}
 ```
 
 ---
@@ -961,6 +1011,21 @@ mymodule.some_function(args)
 - Classes (`class`)
 - Constants (`var NAME = value`)
 - Other `module add` / `library add` calls (they compose)
+- Anything you can write in a regular `.cot` file
+
+---
+
+### Registering dependencies in Millet.toml
+
+When you use `cocotte add`, `cocotte new lib`, or `cocotte new module`, your `Millet.toml` is updated automatically. You can also edit it by hand:
+
+```toml
+[dependencies]
+modules   = ["json", "http", "mymodule"]
+libraries = ["libraries/mymath.cotlib", "libraries/utils.cotlib"]
+```
+
+Built-in modules (`json`, `math`, `os`, `http`, `sqlite`, `charlotte`) do not need to be listed — they are always available with `module add`.
 
 ---
 
@@ -984,7 +1049,7 @@ end)
 
 ### Persistent state
 
-The callback runs ~60 times per second. Variables declared inside it reset every frame. To keep state across frames, store it in a `map` declared outside the callback.
+The callback runs ~60 times per second. Variables declared *inside* the callback reset every frame. To keep state across frames, store it in a `map` declared *outside* the callback — maps are reference types, so changes inside the callback stick.
 
 ```cocotte
 var state = {"text": "", "items": []}
@@ -1141,7 +1206,7 @@ name   = "MyApp"
 author = "You"
 
 [variables]
-OUT = "dist"
+OUT  = "dist"
 PORT = "8080"
 
 [tasks.run]
@@ -1319,6 +1384,24 @@ end
 
 ---
 
+### POST data to an API
+
+```cocotte
+module add "http"
+module add "json"
+
+var payload = {"title": "Buy milk", "completed": false}
+
+try
+    var response = http.post_json("https://jsonplaceholder.typicode.com/todos", payload)
+    print "Created! Server replied: " + response
+catch err
+    print "Request failed: " + err
+end
+```
+
+---
+
 ### SQLite contact book
 
 ```cocotte
@@ -1374,18 +1457,18 @@ end)
 
 ---
 
-### Quick reference
+### Quick reference card
 
-```cocotte
-# Variable             # Math (division syntax)
-var x = 42             divide x by y
-var s = "hello"        floor(divide x by y)
+```
+# Variable              # Math (division syntax)
+var x = 42              divide x by y
+var s = "hello"         floor(divide x by y)
 var ok = true
-var items = [1, 2, 3]  # Comparison
-var data = {}          ==  !=  <  >  <=  >=
+var items = [1, 2, 3]   # Comparison
+var data = {}           ==  !=  <  >  <=  >=
 
-# If / elif / else      # Logical
-if cond                and  or  not
+# If / elif / else       # Logical
+if cond                 and  or  not
     ...
 elif other
     ...
@@ -1393,33 +1476,52 @@ else
     ...
 end
 
-# While                 # For
-while cond             for item in list
-    ...                    ...
-end                    end
-                       for i in range(0, 10)
-                           ...
-                       end
+# While                  # For
+while cond              for item in list
+    ...                     ...
+end                     end
+                        for i in range(0, 10)
+                            ...
+                        end
 
-# Function              # Lambda
-func name(a, b)        var f = func(x) return x * 2 end
+# Function               # Lambda
+func name(a, b)         var f = func(x) return x * 2 end
     return a + b
 end
 
-# Class                 # Error handling
-class Dog              try
-    func init(name)        ...
-        self.name = name  catch err
-    end                    print err
+# Class                  # Error handling
+class Dog               try
+    func init(name)         ...
+        self.name = name    catch err
+    end                     print err
     func bark()         end
         print self.name
     end
-end                    # Modules
-                       module add "json"
-                       module add "http"
-                       module add "sqlite"
-                       module add "math"
-                       module add "os"
-                       module add "charlotte"
-                       library add "libraries/mylib.cotlib"
+end                     # Load a module     Load a library
+                        module add "json"   library add "libraries/mylib.cotlib"
 ```
+
+---
+
+## 19. Planned Modules
+
+These modules are on the roadmap for future versions of Cocotte. They do not exist yet.
+
+| Module | Purpose |
+|--------|---------|
+| `regex` | Regular expressions (`regex.match`, `regex.find_all`, `regex.replace`) |
+| `csv` | Parse and write CSV files |
+| `datetime` | Date/time parsing, formatting, arithmetic |
+| `path` | Cross-platform path manipulation (`path.join`, `path.basename`, `path.ext`) |
+| `crypto` | Hashing (`sha256`, `md5`), base64 encode/decode |
+| `zip` | Compress and extract `.zip` archives |
+| `env` | Richer environment variable helpers (`.set`, `.all`, `.require`) |
+| `args` | CLI argument parser (flags, options, positional args) |
+| `log` | Structured logging with levels (info, warn, error) |
+| `uuid` | Generate UUID v4 strings |
+| `toml` | Parse and write TOML files (useful for reading `Millet.toml` at runtime) |
+| `template` | Simple string templating engine |
+| `term` | Terminal control — colors, cursor movement, raw mode |
+| `process` | Spawn child processes, capture stdout/stderr separately, pipe I/O |
+
+If you need one of these now, you can write it as a `.cotmod` and share it with the community.

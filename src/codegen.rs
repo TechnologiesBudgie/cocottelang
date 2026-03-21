@@ -11,6 +11,7 @@
 // When cargo or the required cross-linker is absent the module emits a
 // portable source bundle the user can compile on the target machine.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::fs;
 use colored::Colorize;
@@ -150,21 +151,81 @@ impl BuildOptions {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-pub fn build_project(opts: &BuildOptions) -> Result<()> {
-    println!("Building {}...", opts.project_name.bold());
+// ── Pretty step printer (cargo-style) ────────────────────────────────────────
 
-    // Validate source before touching the filesystem.
-    let source = fs::read_to_string(&opts.source_path)?;
-    print!("  Parsing source... ");
+#[allow(dead_code)]
+fn step(verb: &str, detail: &str) {
+    // Right-align verb in 12 chars, bold green — just like cargo
+    println!("{:>12} {}", verb.green().bold(), detail);
+}
+
+#[allow(dead_code)]
+fn step_warn(verb: &str, detail: &str) {
+    println!("{:>12} {}", verb.yellow().bold(), detail);
+}
+
+#[allow(dead_code)]
+fn step_err(verb: &str, detail: &str) {
+    eprintln!("{:>12} {}", verb.red().bold(), detail);
+}
+
+#[allow(dead_code)]
+fn substep(detail: &str) {
+    println!("             {}", detail.dimmed());
+}
+
+fn detect_version() -> String {
+    if let Ok(s) = fs::read_to_string("Millet.toml") {
+        for line in s.lines() {
+            if let Some(rest) = line.strip_prefix("version") {
+                if let Some(val) = rest.split('=').nth(1) {
+                    let v = val.trim().trim_matches('"').trim_matches('\'');
+                    if !v.is_empty() { return v.to_string(); }
+                }
+            }
+        }
+    }
+    "0.1.0".to_string()
+}
+
+// ── Entry point ───────────────────────────────────────────────────────────────
+
+pub fn build_project(opts: &BuildOptions) -> Result<()> {
+    let n_targets = opts.targets.len();
+    let plural    = if n_targets == 1 { "target" } else { "targets" };
+
+    step("Compiling", &format!(
+        "{} v{} ({} {})",
+        opts.project_name.bold(),
+        detect_version(),
+        n_targets,
+        plural,
+    ));
+
+    // ── Parse / validate source ───────────────────────────────────────────────
+    step("Checking", &opts.source_path.display().to_string());
+
+    let source = fs::read_to_string(&opts.source_path)
+        .map_err(|e| CocotteError::build_err(&format!("cannot read source: {}", e)))?;
+
     let mut lexer = crate::lexer::Lexer::new(&source);
     let tokens = lexer.tokenize().map_err(|e| {
+        step_err("error[E0001]", &format!("syntax error in {}", opts.source_path.display()));
         CocotteError::build_err(&format!("Syntax error: {}", e))
     })?;
+
     let mut parser = crate::parser::Parser::new(tokens);
-    parser.parse().map_err(|e| {
+    let _stmts = parser.parse().map_err(|e| {
+        step_err("error[E0002]", &format!("parse error in {}", opts.source_path.display()));
         CocotteError::build_err(&format!("Parse error: {}", e))
     })?;
-    println!("{}", "ok".green());
+
+    if opts.verbose {
+        substep(&format!("{} top-level statement(s) parsed", _stmts.statements.len()));
+    }
+
+    // ── Code generation ───────────────────────────────────────────────────────
+    step("Generating", "runner crate");
 
     fs::create_dir_all(&opts.output_dir)?;
 
@@ -172,7 +233,18 @@ pub fn build_project(opts: &BuildOptions) -> Result<()> {
         build_for_target(opts, &source, os, arch)?;
     }
 
-    println!("\nBuild complete. Output: {}", opts.output_dir.display().to_string().cyan());
+    let profile_label = if opts.release {
+        format!("{} profile [{}]", "release", "optimized".cyan())
+    } else {
+        format!("{} profile [{}]", "dev", "unoptimized + debuginfo")
+    };
+
+    step("Finished", &format!(
+        "{} — output: {}",
+        profile_label,
+        opts.output_dir.display().to_string().cyan(),
+    ));
+
     Ok(())
 }
 
@@ -188,82 +260,84 @@ fn build_for_target(
         (TargetOS::Current, TargetArch::Current) => "native".to_string(),
         _ => format!("{}-{}", os.name(), arch.name()),
     };
-    println!("  target: {}", label.bold());
+
+    step("Targeting", &label);
 
     let triple_opt = os.rust_target(arch);
     if triple_opt.is_none() {
-        eprintln!(
-            "    warning: unsupported target combination {}/{}. Emitting source bundle.",
+        step_warn("Warning", &format!(
+            "unsupported target {}/{} — emitting source bundle instead",
             os.name(), arch.name()
-        );
+        ));
         return emit_source_bundle(opts, source, &label);
     }
+    // Safety: None was handled by the early return above.
     let triple = triple_opt.unwrap();
 
-    // Locate the cocotte compiler's own source directory so we can copy it
-    // into the generated workspace. We find it by resolving the path to the
-    // running executable and walking up to the workspace root.
-    let rt_src = locate_runtime_src();
-
+    let rt_src  = locate_runtime_src();
     let tmp_dir = std::env::temp_dir()
         .join(format!("cocotte_build_{}_{}", opts.project_name, label));
+
+    // Always start from a clean slate — a leftover temp dir from a previous
+    // build can contain stale source files that cause phantom compile errors.
+    if tmp_dir.exists() {
+        fs::remove_dir_all(&tmp_dir)?;
+    }
     fs::create_dir_all(&tmp_dir)?;
 
     if opts.verbose {
-        println!("    [codegen] workspace : {}", tmp_dir.display());
+        substep(&format!("workspace  : {}", tmp_dir.display()));
         if !triple.is_empty() {
-            println!("    [codegen] triple    : {}", triple);
+            substep(&format!("triple     : {}", triple));
         }
     }
 
-    // Write the workspace Cargo.toml
+    step("Scaffolding", "Cargo workspace");
     fs::write(tmp_dir.join("Cargo.toml"), workspace_cargo_toml())?;
 
     match rt_src {
         Some(rt_path) => {
-            // ── Embedded runtime strategy ────────────────────────────────────
-            // Copy the cocotte source tree as a library crate, generate a thin
-            // runner binary that calls into it.
+            if opts.verbose {
+                substep(&format!("runtime src: {}", rt_path.display()));
+            }
+            step("Embedding", "cocotte runtime");
             setup_runtime_crate(&tmp_dir, &rt_path, opts.verbose)?;
+            step("Writing", "runner binary crate");
             setup_runner_crate(&tmp_dir, source, &opts.project_name)?;
         }
         None => {
-            // ── Fallback: single-crate with bundled source ───────────────────
-            // We cannot locate the runtime source, so emit a workspace with
-            // just the runner crate and a note for the user.
             if opts.verbose {
-                println!("    [codegen] runtime source not found; using single-crate fallback");
+                substep("runtime source not found on disk — using single-crate fallback");
             }
+            step_warn("Fallback", "runtime source unavailable, using stub runner");
             setup_single_crate_fallback(&tmp_dir, source, &opts.project_name)?;
         }
     }
 
-    // Invoke cargo
+    // ── Invoke cargo ──────────────────────────────────────────────────────────
     let binary_name = os.binary_name(&opts.project_name, arch);
     let out_path    = opts.output_dir.join(&binary_name);
 
-    let mut cmd = std::process::Command::new("cargo");
-    cmd.arg("build")
-       .current_dir(&tmp_dir);
-    if opts.release       { cmd.arg("--release"); }
-    if !triple.is_empty() { cmd.args(["--target", &triple]); }
-
-    // Only show cargo output in verbose mode
-    if !opts.verbose {
-        cmd.stdout(std::process::Stdio::null())
-           .stderr(std::process::Stdio::null());
-    }
+    let cargo_args: Vec<String> = {
+        let mut a = vec!["build".into()];
+        if opts.release       { a.push("--release".into()); }
+        if !triple.is_empty() { a.push("--target".into()); a.push(triple.clone()); }
+        a
+    };
 
     if opts.verbose {
-        println!(
-            "    [codegen] cargo build{}{}",
-            if opts.release { " --release" } else { "" },
-            if !triple.is_empty() { format!(" --target {}", triple) } else { String::new() },
-        );
+        substep(&format!("cargo {}", cargo_args.join(" ")));
     }
 
-    match cmd.status() {
-        Ok(s) if s.success() => {
+    step("Linking", &format!(
+        "{} (cargo{}{})",
+        opts.project_name,
+        if opts.release { " --release" } else { "" },
+        if !triple.is_empty() { format!(" --target {}", triple) } else { String::new() },
+    ));
+
+    match run_cargo_with_progress(&cargo_args, &tmp_dir, opts.verbose) {
+        Ok(status) if status.success() => {
             let profile   = if opts.release { "release" } else { "debug" };
             let base_name = if matches!(os, TargetOS::Windows) {
                 format!("{}.exe", opts.project_name)
@@ -271,39 +345,154 @@ fn build_for_target(
                 opts.project_name.clone()
             };
 
-            let native = tmp_dir.join("target").join(profile).join(&base_name);
-            let cross  = tmp_dir.join("target").join(&triple).join(profile).join(&base_name);
+            let native_path = tmp_dir.join("target").join(profile).join(&base_name);
+            let cross_path  = tmp_dir.join("target").join(&triple).join(profile).join(&base_name);
 
-            let built = if native.exists() { Some(native) }
-                        else if cross.exists() { Some(cross) }
-                        else { None };
-
-            match built {
+            match [native_path, cross_path].into_iter().find(|p| p.exists()) {
                 Some(p) => {
                     fs::copy(&p, &out_path)?;
-                    println!("    binary: {}", out_path.display().to_string().green());
+                    step("Compiled", &out_path.display().to_string().green().bold().to_string());
                 }
                 None => {
-                    eprintln!("    warning: cargo succeeded but binary not found");
-                    eprintln!("    check: {}", tmp_dir.join("target").display());
+                    step_warn("Warning", "cargo succeeded but binary not found in target/");
+                    if opts.verbose {
+                        substep(&format!("searched: {}", tmp_dir.join("target").display()));
+                    }
                 }
             }
         }
-        Ok(s) => {
-            eprintln!(
-                "    warning: cargo failed (exit {}), emitting source bundle",
-                s.code().unwrap_or(-1)
-            );
+        Ok(status) => {
+            step_warn("Warning", &format!(
+                "cargo exited {} — emitting source bundle",
+                status.code().map(|c| c.to_string()).unwrap_or_else(|| "?".into()),
+            ));
+            if !opts.verbose {
+                substep("re-run with -v / --verbose to see cargo's full output");
+            }
             emit_source_bundle(opts, source, &label)?;
         }
         Err(_) => {
-            eprintln!("    warning: cargo not found — emitting source bundle");
-            eprintln!("    Install Rust from https://rustup.rs then retry.");
+            step_warn("Warning", "cargo not found — emitting source bundle");
+            substep("install Rust from https://rustup.rs then retry");
             emit_source_bundle(opts, source, &label)?;
         }
     }
 
     Ok(())
+}
+
+// ── Live cargo progress bar ───────────────────────────────────────────────────
+//
+// In normal mode  : runs cargo with --message-format=json-render-diagnostics,
+//   reads compiler-artifact JSON events from stdout and draws a live animated
+//   progress bar. Compiler warnings/errors still appear via stderr.
+//
+// In verbose mode : inherits stdio so cargo's own "Compiling … / Finished"
+//   output (including its own TTY progress bar) passes straight through.
+
+fn run_cargo_with_progress(
+    args:     &[String],
+    work_dir: &Path,
+    verbose:  bool,
+) -> std::io::Result<std::process::ExitStatus> {
+    use std::io::BufRead;
+
+    if verbose {
+        // Let cargo own the terminal completely — its own bar + Compiling lines.
+        return std::process::Command::new("cargo")
+            .args(args)
+            .current_dir(work_dir)
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status();
+    }
+
+    // ── Non-verbose: clean animated progress bar ──────────────────────────────
+    // --message-format=json-render-diagnostics  →  JSON events on stdout,
+    //   human-readable diagnostics on stderr.
+    //
+    // We pipe BOTH stdout and stderr so nothing from cargo reaches the terminal
+    // while the bar is animating (interleaved text would corrupt the \r rewrite).
+    // After cargo exits we replay stderr so warnings/errors still reach the user.
+    let mut json_args = args.to_vec();
+    json_args.push("--message-format=json-render-diagnostics".into());
+
+    let mut child = std::process::Command::new("cargo")
+        .args(&json_args)
+        .current_dir(work_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())   // captured — replayed after bar
+        .spawn()?;
+
+    let stdout = child.stdout.take().expect("cargo stdout pipe");
+    let stderr = child.stderr.take().expect("cargo stderr pipe");
+
+    // Drain stderr in a background thread so it never blocks cargo.
+    let stderr_handle = std::thread::spawn(move || {
+        let mut buf = String::new();
+        use std::io::Read;
+        let _ = std::io::BufReader::new(stderr).read_to_string(&mut buf);
+        buf
+    });
+
+    let reader = std::io::BufReader::new(stdout);
+
+    const BAR_W: usize = 28;
+    let mut count: usize = 0;
+
+    for line in reader.lines() {
+        let line = match line { Ok(l) => l, Err(_) => break };
+
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+            // compiler-artifact fires once per compiled crate
+            if json["reason"].as_str() == Some("compiler-artifact") {
+                count += 1;
+
+                // package_id: "registry+https://...#crate-name 1.2.3 (...)"
+                //          or "path+file:///...#crate-name 0.1.0"
+                let pkg = json["package_id"]
+                    .as_str()
+                    .and_then(|s| s.split('#').last())
+                    .and_then(|s| s.split_whitespace().next())
+                    .unwrap_or("?");
+
+                let pkg_short = if pkg.len() > 22 { &pkg[..22] } else { pkg };
+
+                // Bouncing bar — looks good without knowing the total crate count
+                let cycle  = count % (BAR_W * 2);
+                let filled = (if cycle <= BAR_W { cycle } else { BAR_W * 2 - cycle }).max(1);
+                let empty  = BAR_W.saturating_sub(filled);
+                let bar    = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
+
+                // \r + \x1b[K: go to start of line, erase to EOL, redraw
+                print!(
+                    "\r\x1b[K{:>12} {} {:>4}  {:<22}",
+                    "Building".green().bold(),
+                    bar.cyan(),
+                    count,
+                    pkg_short.dimmed(),
+                );
+                let _ = std::io::stdout().flush();
+            }
+        }
+    }
+
+    // Erase bar line cleanly before any subsequent step() output
+    if count > 0 {
+        print!("\r\x1b[K");
+        let _ = std::io::stdout().flush();
+    }
+
+    let status = child.wait()?;
+
+    // Replay captured stderr now that the bar is gone — warnings/errors appear
+    // below the bar, not tangled inside it.
+    let captured_stderr = stderr_handle.join().unwrap_or_default();
+    if !captured_stderr.trim().is_empty() {
+        eprint!("{}", captured_stderr);
+    }
+
+    Ok(status)
 }
 
 // ── Workspace helpers ─────────────────────────────────────────────────────────
@@ -355,7 +544,11 @@ fn setup_runtime_crate(tmp_dir: &Path, rt_src: &Path, verbose: bool) -> Result<(
     // Copy every .rs file from the runtime src/
     let rs_files: Vec<_> = fs::read_dir(rt_src)?
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|x| x == "rs").unwrap_or(false))
+        .filter(|e| {
+            let p = e.path();
+            p.extension().map(|x| x == "rs").unwrap_or(false)
+                && p.file_name().map(|n| n != "main.rs").unwrap_or(true)
+        })
         .collect();
 
     for entry in &rs_files {
@@ -364,7 +557,7 @@ fn setup_runtime_crate(tmp_dir: &Path, rt_src: &Path, verbose: bool) -> Result<(
     }
 
     if verbose {
-        println!("    [codegen] copied {} runtime files", rs_files.len());
+        substep(&format!("copied {} runtime source file(s)", rs_files.len()));
     }
 
     // lib.rs re-exports everything public from main.rs's mods
@@ -384,10 +577,12 @@ path = "src/lib.rs"
 
 [dependencies]
 serde      = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = "=1.0.96"
 colored    = "2"
-indexmap   = "2"
+indexmap   = "=2.0.2"
 dirs       = "5"
+ureq       = { version = "2", features = ["json"] }
+rusqlite   = { version = "0.31", features = ["bundled"] }
 eframe     = { version = "0.29", optional = true, features = ["wgpu"] }
 egui       = { version = "0.29", optional = true }
 
@@ -513,8 +708,8 @@ strip     = true
 
 /// Generate a lib.rs that re-exports the interpreter modules.
 fn generate_lib_rs() -> String {
-    // Declare the same modules as main.rs, but as pub so the runner can use them.
-    // We exclude main.rs itself (it's a bin, not included in the lib).
+    // Declare the same modules as main.rs as pub so the runner can use them.
+    // charlotte is conditionally compiled — must match the [features] in Cargo.toml.
     r#"// Auto-generated lib.rs — exposes cocotte runtime modules
 pub mod ast;
 pub mod lexer;
@@ -530,6 +725,8 @@ pub mod bytecode;
 pub mod vm;
 pub mod charlotfile;
 pub mod codegen;
+#[cfg(feature = "gui")]
+pub mod charlotte;
 "#.to_string()
 }
 
@@ -572,10 +769,18 @@ path = "src/lib.rs"
 
 [dependencies]
 serde      = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = "=1.0.96"
 colored    = "2"
-indexmap   = "2"
+indexmap   = "=2.0.2"
 dirs       = "5"
+ureq       = { version = "2", features = ["json"] }
+rusqlite   = { version = "0.31", features = ["bundled"] }
+eframe     = { version = "0.29", optional = true, features = ["wgpu"] }
+egui       = { version = "0.29", optional = true }
+
+[features]
+default = ["gui"]
+gui     = ["eframe", "egui"]
 "#)?;
     }
 
@@ -623,7 +828,7 @@ strip     = true
         format!("# {project} — Cocotte Source Bundle\n\nCompile with:\n\n```sh\ncargo build --release\n```\n\nTarget: {target}\n\nRequires a Rust toolchain: https://rustup.rs\n"),
     )?;
 
-    println!("    source bundle: {}", bundle_dir.display().to_string().green());
+    step("Bundling", &format!("source → {}", bundle_dir.display()));
     Ok(())
 }
 

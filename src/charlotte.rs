@@ -149,11 +149,14 @@ pub fn run_window(
 
 #[cfg(feature = "gui")]
 fn with_ui<R, F: FnOnce(&mut eframe::egui::Ui) -> R>(f: F) -> Option<R> {
-    EGUI_UI.with(|p| {
-        let ptr = *p.borrow();
-        if ptr == 0 { return None; }
-        Some(f(unsafe { &mut *(ptr as *mut eframe::egui::Ui) }))
-    })
+    // Copy the pointer out before calling f so the RefCell borrow is
+    // released first.  If the borrow were held across f(), any nested
+    // set_ui_ptr() call (e.g. inside ui.row / ui.column layout closures)
+    // would attempt a second borrow_mut on the same RefCell and panic,
+    // causing buttons and other interactive widgets to silently return None.
+    let ptr = EGUI_UI.with(|p| *p.borrow());
+    if ptr == 0 { return None; }
+    Some(f(unsafe { &mut *(ptr as *mut eframe::egui::Ui) }))
 }
 
 #[cfg(feature = "gui")]
