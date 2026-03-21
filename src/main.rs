@@ -15,6 +15,8 @@ mod bytecode;
 mod vm;
 mod charlotfile;
 mod codegen;
+mod runtime_ctx;
+mod http_server;
 #[cfg(feature = "gui")]
 mod charlotte;
 

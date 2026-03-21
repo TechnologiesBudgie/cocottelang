@@ -468,6 +468,66 @@ fn make_http_module() -> Value {
         }),
     }));
 
+    // http.serve(port, func(req) ... end)
+    // Starts a synchronous HTTP server on `port`. Blocks forever.
+    //
+    // The handler is called for every request and receives a map:
+    //   "method"  → string  "GET" | "POST" | "PUT" | "DELETE" | ...
+    //   "path"    → string  "/api/users"
+    //   "query"   → string  raw query string, e.g. "q=hello" (may be "")
+    //   "headers" → map     header-name (lowercase) → header-value
+    //   "body"    → string  raw request body (may be "")
+    //
+    // The handler must return a map:
+    //   "status"  → number  HTTP status code (default: 200)
+    //   "body"    → string  response body   (default: "")
+    //   "headers" → map     extra response headers (optional)
+    //
+    // Or it may return a plain string for a simple 200 text response.
+    ns.insert("serve".into(), Value::NativeFunction(NativeFunction {
+        name: "http.serve".into(),
+        arity: Some(2),
+        func: Arc::new(|args| {
+            let port = match args.first() {
+                Some(Value::Number(n)) => *n as u16,
+                _ => return Err(CocotteError::type_err(
+                    "http.serve(port, handler) — port must be a number"
+                )),
+            };
+            let handler = match args.get(1) {
+                Some(Value::Function(f)) => f.clone(),
+                _ => return Err(CocotteError::type_err(
+                    "http.serve(port, handler) — handler must be a function"
+                )),
+            };
+            crate::http_server::run_server(port, handler).map(|_| Value::Nil)
+        }),
+    }));
+
+    // http.serve_static(port, dir)
+    // Serves files from `dir` over HTTP on `port`. Blocks forever.
+    // Returns 404 for missing files. Infers Content-Type from file extension.
+    // Requests for "/" serve `dir/index.html`.
+    ns.insert("serve_static".into(), Value::NativeFunction(NativeFunction {
+        name: "http.serve_static".into(),
+        arity: Some(2),
+        func: Arc::new(|args| {
+            let port = match args.first() {
+                Some(Value::Number(n)) => *n as u16,
+                _ => return Err(CocotteError::type_err(
+                    "http.serve_static(port, dir) — port must be a number"
+                )),
+            };
+            let dir = match args.get(1) {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err(
+                    "http.serve_static(port, dir) — dir must be a string"
+                )),
+            };
+            crate::http_server::run_static_server(port, &dir).map(|_| Value::Nil)
+        }),
+    }));
+
     Value::Module(Arc::new(Mutex::new(ns)))
 }
 

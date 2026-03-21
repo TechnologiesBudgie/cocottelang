@@ -40,8 +40,7 @@ impl Interpreter {
         self.env.full_snapshot()
     }
 
-/// Public wrapper for call_function (used by charlotte module)
-    #[cfg(feature = "gui")]
+/// Public wrapper for call_function (used by charlotte and http server modules)
     pub fn call_function_pub(
         &mut self,
         func: &CocotteFunction,
@@ -51,8 +50,7 @@ impl Interpreter {
         self.call_function(func, args, self_val)
     }
 
-    /// Copy global variable bindings from another interpreter (for charlotte)
-    #[cfg(feature = "gui")]
+    /// Copy global variable bindings from another interpreter (for charlotte and http server)
     pub fn copy_globals_from(&mut self, other: &Interpreter) {
         let snapshot = other.env.snapshot();
         for (k, v) in snapshot {
@@ -63,8 +61,8 @@ impl Interpreter {
 
     /// Run an entire program (list of statements)
     pub fn run(&mut self, program: &Program) -> Result<Value> {
-        // Register this interpreter in the thread-local so charlotte module can access it
-        #[cfg(feature = "gui")] crate::charlotte::set_active_interpreter(self as *mut Interpreter as usize);
+        // Register this interpreter so native modules (charlotte, http server) can call back into it
+        crate::runtime_ctx::set_active_interpreter(self as *mut Interpreter as usize);
         let mut last = Value::Nil;
         for stmt in &program.statements {
             last = self.exec_stmt(stmt)?;

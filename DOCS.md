@@ -778,9 +778,9 @@ print out
 
 ### `http`
 
-An HTTP **client** for making outbound requests — backed by [ureq](https://github.com/algesten/ureq) (pure Rust, bundled TLS, no system dependencies).
+HTTP **client** and **server** — backed by [ureq](https://github.com/algesten/ureq) (pure Rust, bundled TLS) for outbound requests, and a built-in synchronous TCP server for inbound requests.
 
-> **Note:** `http` is a client, not a server. There is no `http.listen()` or `http.server()`. Use `os.exec()` to shell out to a server process, or use the Rust backend integration if you need to serve HTTP.
+#### Client functions
 
 ```cocotte
 module add "http"
@@ -820,21 +820,114 @@ http.delete("https://api.example.com/users/1")
 | `http.put(url, body [, headers])` | PUT request |
 | `http.delete(url [, headers])` | DELETE request |
 
-`headers` is an optional map of `{"Header-Name": "value"}`. All functions return the response body as a string, except `get_json` which returns a parsed Cocotte value. Errors throw a catchable runtime error.
+`headers` is an optional map of `{"Header-Name": "value"}`. All client functions return the response body as a string except `get_json`, which returns a parsed Cocotte value. Errors throw a catchable runtime error.
+
+#### Server functions
+
+`http.serve` and `http.serve_static` both **block forever** — call them at the end of your program.
+
+##### `http.serve(port, handler)`
+
+Starts an HTTP server on `port`. `handler` is a Cocotte function called for every incoming request.
+
+**Request map** (argument received by the handler):
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `"method"` | string | `"GET"`, `"POST"`, `"PUT"`, `"DELETE"`, … |
+| `"path"` | string | URL path, e.g. `"/api/users"` |
+| `"query"` | string | Raw query string, e.g. `"q=hello&page=2"` (may be `""`) |
+| `"headers"` | map | Header name (lowercase) → value |
+| `"body"` | string | Raw request body (may be `""`) |
+
+**Response map** (value returned by the handler):
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `"status"` | number | `200` | HTTP status code |
+| `"body"` | string | `""` | Response body |
+| `"headers"` | map | `{}` | Extra response headers |
+
+Returning a plain string is also valid — it produces a `200` text response.
 
 ```cocotte
-# Error handling example
 module add "http"
 module add "json"
+module add "sqlite"
 
-try
-    var data = http.get_json("https://api.example.com/users")
-    for user in data
-        print user.get("name")
+var db = sqlite.open("app.db")
+sqlite.exec(db, "CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)")
+
+http.serve(8080, func(req)
+    var method = req.get("method")
+    var path   = req.get("path")
+    var json_h = {"Content-Type": "application/json; charset=utf-8"}
+
+    if method == "GET" and path == "/items"
+        var rows = sqlite.query(db, "SELECT * FROM items")
+        return {"status": 200, "body": json.stringify(rows), "headers": json_h}
     end
-catch err
-    print "Request failed: " + err
+
+    if method == "POST" and path == "/items"
+        try
+            var data = json.parse(req.get("body"))
+            sqlite.exec(db, "INSERT INTO items(name) VALUES('" + data.get("name") + "')")
+            return {"status": 201, "body": "{\"ok\":true}", "headers": json_h}
+        catch err
+            return {"status": 500, "body": "{\"error\":\"" + err + "\"}", "headers": json_h}
+        end
+    end
+
+    return {"status": 404, "body": "{\"error\":\"not found\"}", "headers": json_h}
+end)
+```
+
+##### `http.serve_static(port, dir)`
+
+Serves all files in `dir` over HTTP on `port`. Content-Type is inferred from the file extension. Requests for `/` serve `dir/index.html`. Missing files return `404`. Directory traversal is blocked.
+
+```cocotte
+module add "http"
+
+# Serve the "public" directory on port 3000
+http.serve_static(3000, "public")
+```
+
+Supported Content-Types: `.html`, `.css`, `.js`, `.json`, `.png`, `.jpg`/`.jpeg`, `.svg`, `.ico`, `.woff2`, `.woff`, `.ttf`, `.webp`, `.gif`.
+
+#### Combining client, server, and sqlite
+
+```cocotte
+module add "http"
+module add "json"
+module add "sqlite"
+
+var db = sqlite.open("notes.db")
+sqlite.exec(db, "CREATE TABLE IF NOT EXISTS notes(id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT)")
+
+func handle(req)
+    var j = {"Content-Type": "application/json; charset=utf-8"}
+
+    if req.get("method") == "GET" and req.get("path") == "/"
+        return {"status": 200, "body": read_file("static/index.html"),
+                "headers": {"Content-Type": "text/html; charset=utf-8"}}
+    end
+
+    if req.get("method") == "GET" and req.get("path") == "/api/notes"
+        return {"status": 200, "body": json.stringify(sqlite.query(db, "SELECT * FROM notes")), "headers": j}
+    end
+
+    if req.get("method") == "POST" and req.get("path") == "/api/notes"
+        var d = json.parse(req.get("body"))
+        sqlite.exec(db, "INSERT INTO notes(text) VALUES('" + d.get("text") + "')")
+        return {"status": 201, "body": "{\"ok\":true}", "headers": j}
+    end
+
+    return {"status": 404, "body": "{\"error\":\"not found\"}", "headers": j}
 end
+
+print "Listening on port 9192"
+http.serve(9192, func(req) return handle(req) end)
 ```
 
 ---

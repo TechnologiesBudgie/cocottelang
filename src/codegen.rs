@@ -719,6 +719,8 @@ pub mod bytecode;
 pub mod vm;
 pub mod charlotfile;
 pub mod codegen;
+pub mod runtime_ctx;
+pub mod http_server;
 #[cfg(feature = "gui")]
 pub mod charlotte;
 "#.to_string()

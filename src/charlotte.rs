@@ -44,16 +44,11 @@ use crate::error::{CocotteError, Result};
 use std::cell::RefCell;
 
 thread_local! {
-    static EGUI_UI:    RefCell<usize> = RefCell::new(0);
-    static GUI_STATE:  RefCell<usize> = RefCell::new(0);
-    static ACTIVE_INTERP: RefCell<usize> = RefCell::new(0);
+    static EGUI_UI:   RefCell<usize> = RefCell::new(0);
+    static GUI_STATE: RefCell<usize> = RefCell::new(0);
 }
 
-/// Called by the interpreter before executing any program so charlotte.window()
-/// can always find the active interpreter, including on the first call.
-pub fn set_active_interpreter(ptr: usize) {
-    ACTIVE_INTERP.with(|p| *p.borrow_mut() = ptr);
-}
+// Interpreter pointer is managed by crate::runtime_ctx.
 
 // ── Persistent state across frames ───────────────────────────────────────────
 
@@ -104,7 +99,7 @@ pub fn run_window(
 
                 EGUI_UI.with(      |p| *p.borrow_mut() = ui_ptr);
                 GUI_STATE.with(    |p| *p.borrow_mut() = state_ptr);
-                ACTIVE_INTERP.with(|p| *p.borrow_mut() = interp_ptr);
+                crate::runtime_ctx::set_active_interpreter(interp_ptr);
 
                 let ui_obj = make_ui_object();
                 if let Err(e) = call_draw_fn(&self.draw_fn, ui_obj) {
@@ -117,7 +112,7 @@ pub fn run_window(
 
                 EGUI_UI.with(      |p| *p.borrow_mut() = 0);
                 GUI_STATE.with(    |p| *p.borrow_mut() = 0);
-                ACTIVE_INTERP.with(|p| *p.borrow_mut() = 0);
+                crate::runtime_ctx::set_active_interpreter(0);
             });
         }
     }
@@ -171,14 +166,12 @@ fn set_ui_ptr(ptr: usize) {
 
 #[cfg(feature = "gui")]
 fn call_draw_fn(func: &CocotteFunction, ui_val: Value) -> Result<Value> {
-    ACTIVE_INTERP.with(|p| {
-        let ptr = *p.borrow();
-        if ptr == 0 {
-            return Err(CocotteError::runtime("charlotte: no active interpreter"));
-        }
-        let interp = unsafe { &mut *(ptr as *mut crate::interpreter::Interpreter) };
-        interp.call_function_pub(func, vec![ui_val], None)
-    })
+    let ptr = crate::runtime_ctx::get_active_interpreter();
+    if ptr == 0 {
+        return Err(CocotteError::runtime("charlotte: no active interpreter"));
+    }
+    let interp = unsafe { &mut *(ptr as *mut crate::interpreter::Interpreter) };
+    interp.call_function_pub(func, vec![ui_val], None)
 }
 
 #[cfg(feature = "gui")]
@@ -555,16 +548,14 @@ pub fn make_charlotte_module() -> Value {
                 "charlotte.window() requires (title, width, height, func(ui) ... end)"
             )),
         };
-        ACTIVE_INTERP.with(|p| {
-            let ptr = *p.borrow();
-            if ptr == 0 {
-                return Err(CocotteError::runtime(
-                    "charlotte.window() called outside of an active interpreter"
-                ));
-            }
-            let interp = unsafe { &mut *(ptr as *mut crate::interpreter::Interpreter) };
-            run_window(&title, width, height, draw_fn, interp).map(|_| Value::Nil)
-        })
+        let ptr = crate::runtime_ctx::get_active_interpreter();
+        if ptr == 0 {
+            return Err(CocotteError::runtime(
+                "charlotte.window() called outside of an active interpreter"
+            ));
+        }
+        let interp = unsafe { &mut *(ptr as *mut crate::interpreter::Interpreter) };
+        run_window(&title, width, height, draw_fn, interp).map(|_| Value::Nil)
     }));
 
     m.insert("version".into(), nfn("charlotte.version", Some(0), |_| {
