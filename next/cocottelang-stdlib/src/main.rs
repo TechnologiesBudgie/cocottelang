@@ -96,6 +96,10 @@ enum Commands {
         /// Output directory
         #[arg(long, default_value = "dist")]
         out: PathBuf,
+
+        /// Compile to a native binary instead of bytecode
+        #[arg(long)]
+        native: bool,
     },
 
     /// Add a module from the registry or install a local .cotlib / .cotmod file
@@ -130,6 +134,13 @@ enum Commands {
         /// Archive format: zip or tar
         #[arg(long, default_value = "zip")]
         format: String,
+    },
+
+    /// (DUMMY) Cocotte package manager
+    Pkg {
+        /// Subcommand to run
+        #[arg(default_value = "help")]
+        subcommand: String,
     },
 
     /// Execute a task defined in the Charlotfile
@@ -168,13 +179,14 @@ fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Init { name }                                  => cmd_init(&name),
         Commands::Run { file, debug, bytecode }                  => cmd_run(&file, debug, bytecode),
-        Commands::Build { file, os, arch, release, symbols, verbose, out } =>
-            cmd_build(&file, &os, &arch, release, symbols, verbose, &out),
+        Commands::Build { file, os, arch, release, symbols, verbose, out, native } =>
+            cmd_build(&file, &os, &arch, release, symbols, verbose, &out, native),
         Commands::Add { target }                                 => cmd_add(&target),
         Commands::New { kind, name }                             => cmd_new(&kind, &name),
         Commands::Test { dir, verbose }                          => cmd_test(&dir, verbose),
         Commands::Clean                                          => cmd_clean(),
         Commands::Package { format }                             => cmd_package(&format),
+        Commands::Pkg { subcommand }                             => cmd_pkg(&subcommand),
         Commands::Exec { task, verbose }                         => cmd_exec(&task, verbose),
         Commands::Repl                                           => cmd_repl(),
         Commands::Disasm { file }                                => cmd_disasm(&file),
@@ -243,6 +255,7 @@ fn cmd_build(
     symbols:    bool,
     verbose:    bool,
     out_dir:    &Path,
+    native:     bool,
 ) -> Result<()> {
     let project_name = detect_project_name(file);
 
@@ -288,9 +301,16 @@ fn cmd_build(
     opts.debug_symbols = symbols;
     opts.verbose       = verbose;
     opts.output_dir    = out_dir.to_path_buf();
+    opts.native        = native;
 
     build_project(&opts)
 }
+
+fn cmd_pkg(subcommand: &str) -> Result<()> {
+    println!("(DUMMY) Cocotte package manager: '{}'", subcommand);
+    Ok(())
+}
+
 
 fn cmd_add(target: &str) -> Result<()> {
     let path = Path::new(target);
@@ -528,7 +548,7 @@ fn cmd_test(dir: &Path, verbose: bool) -> Result<()> {
                 continue;
             }
         };
-        let result = run_test_file(&source, test_file);
+        let result = run_test_file(&source, test_file, verbose);
         total += 1;
         match result {
             Ok(count) => {
@@ -540,7 +560,11 @@ fn cmd_test(dir: &Path, verbose: bool) -> Result<()> {
             Err(e) => {
                 failed += 1;
                 eprintln!("  FAIL: {}", test_file.display());
-                e.report(None);
+                if verbose {
+                    e.report(Some(&source.lines().collect::<Vec<_>>()));
+                } else {
+                    e.report(None);
+                }
             }
         }
     }
@@ -554,12 +578,13 @@ fn cmd_test(dir: &Path, verbose: bool) -> Result<()> {
     Ok(())
 }
 
-fn run_test_file(source: &str, path: &Path) -> Result<usize> {
+fn run_test_file(source: &str, path: &Path, verbose: bool) -> Result<usize> {
     let mut lexer  = lexer::Lexer::new(source);
     let tokens     = lexer.tokenize()?;
     let mut parser = parser::Parser::new(tokens);
     let program    = parser.parse()?;
     let mut interp = Interpreter::new();
+    interp.debug = verbose;
     interp.project_root = find_project_root(path);
     interp.run(&program)?;
     let count = source.lines()

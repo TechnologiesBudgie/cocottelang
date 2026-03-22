@@ -133,6 +133,7 @@ pub struct BuildOptions {
     pub release:       bool,
     pub debug_symbols: bool,
     pub verbose:       bool,
+    pub native:        bool,
 }
 
 impl BuildOptions {
@@ -145,6 +146,7 @@ impl BuildOptions {
             release:       false,
             debug_symbols: false,
             verbose:       false,
+            native:        false,
         }
     }
 }
@@ -191,6 +193,10 @@ fn detect_version() -> String {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub fn build_project(opts: &BuildOptions) -> Result<()> {
+    if opts.native {
+        step_warn("Warning", "native compilation is not yet implemented. Falling back to default build.");
+    }
+
     let n_targets = opts.targets.len();
     let plural    = if n_targets == 1 { "target" } else { "targets" };
 

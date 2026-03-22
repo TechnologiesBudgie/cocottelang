@@ -286,6 +286,7 @@ var by_age_desc = sort.by_field_desc(users, "age")
 check("sort by_field_desc first", by_age_desc.get(0).get("name"), "Bob")
 check("sort binary_search found", sort.binary_search([1,2,3,4,5], 3), 2)
 check("sort binary_search missing", sort.binary_search([1,2,3,4,5], 9), -1)
+check("sort merge_sort exists", is_function(sort.merge_sort), true)
 
 # ── search ─────────────────────────────────────────────────────────────────────
 section("search")

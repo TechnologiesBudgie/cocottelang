@@ -4,12 +4,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use crate::value::{Value, NativeFunction};
+use crate::value::{Value, NativeFunction, CocotteFunction};
 use crate::error::{CocotteError, Result};
 use rusqlite::Connection;
 
-/// Load a built-in or file-based module by name
-/// Returns a Value::Module containing the module's namespace
 pub fn load_module(name: &str, project_root: &Path) -> Result<Value> {
     match name {
         "charlotte" => Ok(make_charlotte_module()),
@@ -19,22 +17,24 @@ pub fn load_module(name: &str, project_root: &Path) -> Result<Value> {
         "os"     => Ok(make_os_module()),
         "http"   => Ok(make_http_module()),
         "sqlite" => Ok(make_sqlite_module()),
+        "threading" => Ok(make_threading_module()),
         _ => {
-            // Try to load from modules/ directory
             let mod_path = project_root.join("modules").join(format!("{}.cotmod", name));
             if mod_path.exists() {
-                load_cotmod_file(&mod_path)
-            } else {
-                Err(CocotteError::module_err(&format!(
-                    "Module '{}' not found. Try: cocotte add {}",
-                    name, name
-                )))
+                return load_cotmod_file(&mod_path);
             }
+            let core_mod_path = Path::new("compiler/stdlib").join(name).join("module.cotlib");
+            if core_mod_path.exists() {
+                return load_cotmod_file(&core_mod_path);
+            }
+            Err(CocotteError::module_err(&format!(
+                "Module '{}' not found. Try: cocotte add {}",
+                name, name
+            )))
         }
     }
 }
 
-/// Load a local .cotlib library from disk and execute it, returning its exported namespace
 pub fn load_library(path: &str, project_root: &Path) -> Result<Value> {
     if Path::new(path).is_absolute() {
         let full_path = PathBuf::from(path);
@@ -46,13 +46,11 @@ pub fn load_library(path: &str, project_root: &Path) -> Result<Value> {
         return load_cotmod_file(&full_path);
     }
 
-    // 1. Try directly relative to project root (e.g. "src/stdlib/foo.cotlib")
     let direct_path = project_root.join(path);
     if direct_path.exists() {
         return load_cotmod_file(&direct_path);
     }
 
-    // 2. Try inside the libraries/ folder (Cocotte convention)
     let lib_path = project_root.join("libraries").join(path);
     if lib_path.exists() {
         return load_cotmod_file(&lib_path);
@@ -66,19 +64,14 @@ pub fn load_library(path: &str, project_root: &Path) -> Result<Value> {
     )))
 }
 
-/// Parse and execute a .cotmod or .cotlib file, extracting its top-level namespace
 fn load_cotmod_file(path: &Path) -> Result<Value> {
     let source = std::fs::read_to_string(path)?;
-    // Run through lexer + parser + interpreter
     let mut lexer = crate::lexer::Lexer::new(&source);
     let tokens = lexer.tokenize()?;
     let mut parser = crate::parser::Parser::new(tokens);
     let ast = parser.parse()?;
-
     let mut interp = crate::interpreter::Interpreter::new();
     interp.run(&ast)?;
-
-    // Collect the top-level environment as the module's exports
     let exports = interp.export_namespace();
     Ok(Value::Module(Arc::new(Mutex::new(exports))))
 }
@@ -192,13 +185,13 @@ fn make_network_stub_module() -> Value {
         };
     }
 
-    net_fn!("get", |args| {
+    net_fn!("get", |args: Vec<Value>| {
         let url = args.get(0).map(|v| v.to_display()).unwrap_or_default();
         println!("[Network] GET {} (stub — add reqwest for real HTTP)", url);
         Ok(Value::Str(format!("{{\"url\":\"{}\",\"status\":200}}", url)))
     });
 
-    net_fn!("post", |args| {
+    net_fn!("post", |args: Vec<Value>| {
         let url = args.get(0).map(|v| v.to_display()).unwrap_or_default();
         let body = args.get(1).map(|v| v.to_display()).unwrap_or_default();
         println!("[Network] POST {} body={} (stub)", url, body);
@@ -709,3 +702,32 @@ fn make_sqlite_module() -> Value {
 
     Value::Module(Arc::new(Mutex::new(ns)))
 }
+
+// ── Threading module ──────────────────────────────────────────────────────────
+
+fn make_threading_module() -> Value {
+    let mut ns: HashMap<String, Value> = HashMap::new();
+
+    // thread.spawn(func) -> thread handle
+    ns.insert("spawn".into(), Value::NativeFunction(NativeFunction {
+        name: "thread.spawn".into(),
+        arity: Some(1),
+        func: Arc::new(|args| {
+            let func = match args.first() {
+                Some(Value::Function(f)) => f.clone(),
+                _ => return Err(CocotteError::type_err("thread.spawn(func) requires a function")),
+            };
+
+            let handle = std::thread::spawn(move || {
+                let mut interp = crate::interpreter::Interpreter::new();
+                let _ = interp.call_function_pub(&func, vec![], None);
+            });
+
+            Ok(Value::Str(format!("{:?}", handle.thread().id())))
+        }),
+    }));
+
+    Value::Module(Arc::new(Mutex::new(ns)))
+}
+
+
