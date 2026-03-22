@@ -87,16 +87,7 @@ impl Interpreter {
             }
 
             Stmt::FuncDecl { name, params, body, .. } => {
-                // Top-level functions get an empty closure — they're global and
-                // always found via the env chain. This prevents O(n²) snapshot
-                // blowup when many functions are defined (e.g. in a library).
-                // Nested functions (inside other functions) get a real snapshot
-                // for proper lexical scoping.
-                let closure = if self.env.has_parent() {
-                    self.env.snapshot()
-                } else {
-                    std::collections::HashMap::new()
-                };
+                let closure = self.env.snapshot();
                 let func = Value::Function(CocotteFunction {
                     name: Some(name.clone()),
                     params: params.clone(),
@@ -116,16 +107,27 @@ impl Interpreter {
                             name: Some(mname.clone()),
                             params: params.clone(),
                             body: body.clone(),
-                            closure: HashMap::new(),
-                        
-                    bytecode: None,
-                });
+                            closure: self.env.snapshot(),
+                            bytecode: None,
+                        });
                     }
                 }
                 let class = Value::Class(CocotteClass {
                     name: name.clone(),
+                    methods: method_map.clone(),
+                });
+
+                // Inject the class itself into each method's closure (for self-reference)
+                for method in method_map.values_mut() {
+                    method.closure.insert(name.clone(), class.clone());
+                }
+                
+                // Re-build class with updated methods
+                let class = Value::Class(CocotteClass {
+                    name: name.clone(),
                     methods: method_map,
                 });
+
                 self.env.define(name, class);
                 Ok(Value::Nil)
             }

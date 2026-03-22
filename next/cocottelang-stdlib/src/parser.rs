@@ -87,19 +87,24 @@ impl Parser {
     fn eat_ident(&mut self) -> Result<String> {
         self.skip_newlines();
         let tok = self.tokens[self.pos].clone();
-        match &tok.kind {
-            TokenKind::Ident(s) => {
-                if self.pos < self.tokens.len() - 1 {
-                    self.pos += 1;
-                }
-                Ok(s.clone())
-            }
-            _ => Err(CocotteError::parser(
+        let name = match &tok.kind {
+            TokenKind::Ident(s) => s.clone(),
+            TokenKind::Add => "add".to_string(),
+            TokenKind::Print => "print".to_string(),
+            TokenKind::Module => "module".to_string(),
+            TokenKind::Library => "library".to_string(),
+            TokenKind::Divide => "divide".to_string(),
+            TokenKind::By => "by".to_string(),
+            _ => return Err(CocotteError::parser(
                 tok.line,
                 tok.col,
                 &format!("Expected identifier but got {:?}", tok.kind),
             )),
+        };
+        if self.pos < self.tokens.len() - 1 {
+            self.pos += 1;
         }
+        Ok(name)
     }
 
     fn current_span(&self) -> Span {
@@ -602,7 +607,8 @@ impl Parser {
                 self.advance();
                 Ok(Expr::SelfRef(Span::new(tok.line, tok.col)))
             }
-            TokenKind::Ident(_) => {
+            TokenKind::Ident(_) | TokenKind::Add | TokenKind::Print | TokenKind::Module 
+            | TokenKind::Library | TokenKind::Divide | TokenKind::By => {
                 let name = self.eat_ident()?;
                 Ok(Expr::Ident(name))
             }

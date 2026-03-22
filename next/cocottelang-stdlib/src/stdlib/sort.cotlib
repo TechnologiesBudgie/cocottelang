@@ -2,26 +2,22 @@
 
 # Sort a list using a key function (returns new sorted list).
 func by(lst, key_fn)
-    var pairs = lst.map(func(item) return {"key": key_fn(item), "val": item} end)
-    var n = pairs.len()
+    if lst.len() <= 1 return lst.copy() end
+    var result = lst.map(func(item) return {"key": key_fn(item), "val": item} end)
+    var n = result.len()
     # Insertion sort (stable)
     var i = 1
     while i < n
-        var current = pairs.get(i)
+        var current = result.get(i)
         var j = i - 1
-        while j >= 0 and pairs.get(j).get("key") > current.get("key")
-            var new_pairs = []
-            for k in range(0, pairs.len())
-                if k == j + 1 new_pairs.push(pairs.get(j))
-                elif k == j   new_pairs.push(current)
-                else          new_pairs.push(pairs.get(k)) end
-            end
-            pairs = new_pairs
+        while j >= 0 and result.get(j).get("key") > current.get("key")
+            result.set(j + 1, result.get(j))
             j = j - 1
         end
+        result.set(j + 1, current)
         i = i + 1
     end
-    return pairs.map(func(p) return p.get("val") end)
+    return result.map(func(p) return p.get("val") end)
 end
 
 # Sort descending by key function.

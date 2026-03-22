@@ -121,14 +121,12 @@ pub fn run_window(
     app_interp.copy_globals_from(interp);
 
     let app = CharlotteApp {
-        draw_fn: draw_fn,
+        draw_fn: draw_fn.clone(),
         state:   GuiState::default(),
         interp:  app_interp,
     };
 
-    // Use wgpu renderer — more reliable than glow on Linux (Wayland + X11).
-    // Glow (OpenGL) silently renders a black window on many Linux setups.
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(title)
             .with_inner_size([width, height]),
@@ -136,8 +134,26 @@ pub fn run_window(
         ..Default::default()
     };
 
-    eframe::run_native(title, options, Box::new(|_cc| Ok(Box::new(app))))
-        .map_err(|e| CocotteError::runtime(&format!("charlotte error: {}", e)))
+    // First attempt: WGPU (preferred for reliability on Linux)
+    match eframe::run_native(title, options.clone(), Box::new(|_cc| Ok(Box::new(app)))) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("[charlotte] WGPU initialization failed: {}. Falling back to OpenGL (Glow)...", e);
+            
+            // Re-create app for second attempt (previous one was moved)
+            let mut app_interp_fallback = crate::interpreter::Interpreter::new();
+            app_interp_fallback.copy_globals_from(interp);
+            let app_fallback = CharlotteApp {
+                draw_fn,
+                state:   GuiState::default(),
+                interp:  app_interp_fallback,
+            };
+
+            options.renderer = eframe::Renderer::Glow;
+            eframe::run_native(title, options, Box::new(|_cc| Ok(Box::new(app_fallback))))
+                .map_err(|e| CocotteError::runtime(&format!("charlotte fallback error: {}", e)))
+        }
+    }
 }
 
 // ── Thread-local helpers (gui only) ──────────────────────────────────────────

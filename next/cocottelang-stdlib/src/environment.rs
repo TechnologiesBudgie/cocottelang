@@ -79,8 +79,6 @@ impl Environment {
         }
         for (k, v) in &self.vars {
             match v {
-                // Native builtins: never capture (always available globally)
-                Value::NativeFunction(_) => {}
                 // User functions: capture from current scope only (depth==0).
                 // This captures lambda/function parameters passed to closures,
                 // but skips global functions defined in parent scopes.
@@ -115,16 +113,16 @@ impl Environment {
         self.parent.map(|b| *b)
     }
 
-    /// Walk up to the root (global) scope and return all user-defined functions there
+    /// Walk up to the root (global) scope and return all user-defined functions and classes there
     pub fn top_scope_functions(&self) -> HashMap<String, Value> {
         // If we have a parent, walk up to root
         if let Some(ref parent) = self.parent {
             return parent.top_scope_functions();
         }
-        // We are the root scope — return functions
+        // We are the root scope — return functions and classes
         let mut map = HashMap::new();
         for (k, v) in &self.vars {
-            if matches!(v, Value::Function(_)) {
+            if matches!(v, Value::Function(_) | Value::Class(_)) {
                 map.insert(k.clone(), v.clone());
             }
         }

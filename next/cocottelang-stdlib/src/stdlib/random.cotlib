@@ -31,10 +31,11 @@ func sample(lst, n)
     while result.len() < take and not copy.is_empty()
         var idx = int(0, copy.len() - 1)
         result.push(copy.get(idx))
-        copy = copy.slice(0, idx).copy()
-        if idx < copy.len()
-            copy.extend(lst.slice(idx + 1, lst.len()))
+        var next_pool = copy.slice(0, idx).copy()
+        if idx < copy.len() - 1
+            next_pool.extend(copy.slice(idx + 1, copy.len()))
         end
+        copy = next_pool
     end
     return result
 end

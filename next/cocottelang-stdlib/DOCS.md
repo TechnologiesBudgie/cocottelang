@@ -204,6 +204,24 @@ cocotte add path/to/utils.cotmod     # copies to modules/, updates Millet.toml
 
 Built-in modules (`json`, `math`, `os`, `http`, `sqlite`, `charlotte`) require no installation — just `module add "name"` in your code.
 
+### Standard Library (68 modules)
+
+Cocotte includes an extensive standard library covering data structures, algorithms, and system utilities. These are loaded with `library add`:
+
+```cocotte
+library add "stdlib/stack/module.cotlib"
+var s = stack.create()
+s.push(1)
+
+library add "stdlib/random/module.cotlib"
+print random.int(1, 100)
+
+library add "stdlib/dates/module.cotlib"
+print dates.today()
+```
+
+See [Module Reference](docs/modules.md) for the full list of available modules and their functions.
+
 ---
 
 ### `cocotte test [dir]`

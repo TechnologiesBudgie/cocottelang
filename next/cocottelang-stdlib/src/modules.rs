@@ -36,21 +36,34 @@ pub fn load_module(name: &str, project_root: &Path) -> Result<Value> {
 
 /// Load a local .cotlib library from disk and execute it, returning its exported namespace
 pub fn load_library(path: &str, project_root: &Path) -> Result<Value> {
-    let full_path = if Path::new(path).is_absolute() {
-        PathBuf::from(path)
-    } else {
-        project_root.join("libraries").join(path)
-    };
-
-    if !full_path.exists() {
-        return Err(CocotteError::module_err(&format!(
-            "Library file '{}' not found at '{}'",
-            path,
-            full_path.display()
-        )));
+    if Path::new(path).is_absolute() {
+        let full_path = PathBuf::from(path);
+        if !full_path.exists() {
+            return Err(CocotteError::module_err(&format!(
+                "Library file '{}' not found", path
+            )));
+        }
+        return load_cotmod_file(&full_path);
     }
 
-    load_cotmod_file(&full_path)
+    // 1. Try directly relative to project root (e.g. "src/stdlib/foo.cotlib")
+    let direct_path = project_root.join(path);
+    if direct_path.exists() {
+        return load_cotmod_file(&direct_path);
+    }
+
+    // 2. Try inside the libraries/ folder (Cocotte convention)
+    let lib_path = project_root.join("libraries").join(path);
+    if lib_path.exists() {
+        return load_cotmod_file(&lib_path);
+    }
+
+    Err(CocotteError::module_err(&format!(
+        "Library file '{}' not found (tried '{}' and '{}')",
+        path,
+        direct_path.display(),
+        lib_path.display()
+    )))
 }
 
 /// Parse and execute a .cotmod or .cotlib file, extracting its top-level namespace
