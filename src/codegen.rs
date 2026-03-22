@@ -495,33 +495,77 @@ fn workspace_cargo_toml() -> String {
     r#"[workspace]
 members = ["runner"]
 resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto       = true
+strip     = true
 "#.to_string()
 }
 
 /// Try to find the Cocotte compiler's `src/` directory on disk.
-/// Looks next to the running binary, then next to the current exe.
+///
+/// Search order:
+///   1. `COCOTTE_SRC` environment variable — explicit override, always wins.
+///   2. Dev-build layout: exe lives at `target/{profile}/cocotte`, so walk up
+///      three levels to the workspace root and look for `src/`.
+///   3. Well-known system installation paths (populated by `make install`):
+///      `/usr/share/cocotte/src`, `/usr/local/share/cocotte/src`, etc.
+///   4. Paths relative to the current working directory (dev convenience).
 fn locate_runtime_src() -> Option<PathBuf> {
-    // Try: directory of the running executable → ../../src  (dev build layout)
-    if let Ok(exe) = std::env::current_exe() {
-        // cargo run layout: target/debug/cocotte → src/
-        let candidate = exe
-            .parent()? // target/debug
-            .parent()? // target
-            .parent()? // workspace root
-            .join("src");
-        if candidate.join("interpreter.rs").exists() {
-            return Some(candidate);
-        }
-
-        // Installed binary: /usr/local/bin/cocotte — no source nearby
-    }
-
-    // Try: well-known development paths relative to cwd
-    let cwd = std::env::current_dir().ok()?;
-    for rel in &["src", "../src"] {
-        let c = cwd.join(rel);
+    // 1. Explicit env override — highest priority
+    if let Ok(p) = std::env::var("COCOTTE_SRC") {
+        let c = PathBuf::from(&p);
         if c.join("interpreter.rs").exists() {
             return Some(c);
+        }
+        // Env was set but path is wrong — warn and continue rather than silently
+        // falling through to a different source tree.
+        eprintln!(
+            "warning: COCOTTE_SRC=\"{}\" set but interpreter.rs not found there",
+            p
+        );
+    }
+
+    // 2. Dev-build layout: target/debug/cocotte  →  ../../.. → src/
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(candidate) = exe
+            .parent()           // target/debug  (or target/release)
+            .and_then(|p| p.parent())   // target/
+            .and_then(|p| p.parent())   // workspace root
+            .map(|p| p.join("src"))
+        {
+            if candidate.join("interpreter.rs").exists() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    // 3. System install paths — populated by `make install`.
+    //    Also checks XDG user data dir (~/.local/share/cocotte on Linux,
+    //    ~/Library/Application Support/cocotte on macOS).
+    let mut system_prefixes: Vec<PathBuf> = vec![
+        PathBuf::from("/usr/share/cocotte"),
+        PathBuf::from("/usr/local/share/cocotte"),
+        PathBuf::from("/opt/cocotte"),
+    ];
+    if let Some(d) = dirs::data_local_dir() { system_prefixes.push(d.join("cocotte")); }
+    if let Some(d) = dirs::data_dir()       { system_prefixes.push(d.join("cocotte")); }
+    for prefix in &system_prefixes {
+        let c = prefix.join("src");
+        if c.join("interpreter.rs").exists() {
+            return Some(c);
+        }
+    }
+
+    // 4. Paths relative to cwd — useful when running `cocotte` from the
+    //    language's own source tree without `cargo install`
+    if let Ok(cwd) = std::env::current_dir() {
+        for rel in &["src", "../src", "cocottelang/src", "../cocottelang/src"] {
+            let c = cwd.join(rel);
+            if c.join("interpreter.rs").exists() {
+                return Some(c);
+            }
         }
     }
 
@@ -643,11 +687,6 @@ path = "src/main.rs"
 
 [dependencies]
 cocotte_rt = {{ path = "../cocotte_rt", features = ["gui"] }}
-
-[profile.release]
-opt-level = 3
-lto       = true
-strip     = true
 "#);
 
     fs::write(runner_dir.join("Cargo.toml"), runner_cargo)?;
@@ -689,11 +728,6 @@ edition = "2021"
 [[bin]]
 name = "{project_name}"
 path = "src/main.rs"
-
-[profile.release]
-opt-level = 3
-lto       = true
-strip     = true
 "#);
 
     fs::write(runner_dir.join("Cargo.toml"), cargo)?;
