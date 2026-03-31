@@ -1,0 +1,87 @@
+# justfile for Cocotte
+# Install just: cargo install just
+# Usage: just [recipe]
+
+binary := "cocotte"
+
+# Default — show available recipes
+default:
+    @just --list
+
+# Build debug binary
+build:
+    cargo build
+
+# Build optimised release binary
+release:
+    cargo build --release
+
+# Build without GUI (smaller, no Charlotte)
+build-nogui:
+    cargo build --no-default-features
+
+# Build release without GUI
+release-nogui:
+    cargo build --release --no-default-features
+
+# Run the test suite
+test: build
+    ./target/debug/{{binary}} test
+
+# Run the test suite (verbose)
+test-verbose: build
+    ./target/debug/{{binary}} test --verbose
+
+# Run the demo
+run: build
+    ./target/debug/{{binary}} run demos/native_demo.cot
+
+# Start the REPL
+repl: build
+    ./target/debug/{{binary}} repl
+
+# Build a native AOT binary of the demo
+native: build
+    mkdir -p /tmp/cocotte_just_test/src
+    cp demos/native_demo.cot /tmp/cocotte_just_test/src/main.cot
+    echo '[project]\nname="demo"\nversion="0.1.0"\nauthor="You"\n[dependencies]\nmodules=[]\nlibraries=[]' > /tmp/cocotte_just_test/Millet.toml
+    cd /tmp/cocotte_just_test && {{justfile_directory()}}/target/debug/{{binary}} build --native
+    /tmp/cocotte_just_test/dist/demo
+
+# Check code without building
+check:
+    cargo check
+
+# Format code
+fmt:
+    cargo fmt
+
+# Format check (CI)
+fmt-check:
+    cargo fmt --check
+
+# Lint with clippy
+lint:
+    cargo clippy -- -D warnings
+
+# Install to /usr/local/bin
+install: release
+    install -Dm755 target/release/{{binary}} /usr/local/bin/{{binary}}
+    @echo "Installed to /usr/local/bin/{{binary}}"
+
+# Uninstall from /usr/local/bin
+uninstall:
+    rm -f /usr/local/bin/{{binary}}
+
+# Clean all build artefacts
+clean:
+    cargo clean
+    rm -rf dist/ build/ .cocotte_cache
+
+# Run cargo update with safety pins
+update:
+    cargo update rayon-core --precise 1.12.1
+
+# Show dependency tree
+tree:
+    cargo tree --no-default-features

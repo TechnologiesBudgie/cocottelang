@@ -38,6 +38,10 @@ use std::sync::{Arc, Mutex};
 use crate::value::{Value, NativeFunction, CocotteFunction};
 use crate::error::{CocotteError, Result};
 
+// ── Renderer selection ────────────────────────────────────────────────────────
+// 0 = auto (WGPU then Glow fallback), 1 = force Glow/OpenGL, 2 = force WGPU
+static FORCED_RENDERER: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
 // ── Thread-locals (always compiled) ──────────────────────────────────────────
 // Pointers valid only during eframe's update() — eframe is single-threaded.
 
@@ -126,6 +130,35 @@ pub fn run_window(
         interp:  app_interp,
     };
 
+    let forced = FORCED_RENDERER.load(std::sync::atomic::Ordering::SeqCst);
+
+    // Force OpenGL (Glow) — best for older GPUs, VMs, and Raspberry Pi
+    if forced == 1 {
+        let options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_title(title)
+                .with_inner_size([width, height]),
+            renderer: eframe::Renderer::Glow,
+            ..Default::default()
+        };
+        return eframe::run_native(title, options, Box::new(|_cc| Box::new(app)))
+            .map_err(|e| CocotteError::runtime(&format!("charlotte (OpenGL) error: {}", e)));
+    }
+
+    // Force WGPU
+    if forced == 2 {
+        let options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_title(title)
+                .with_inner_size([width, height]),
+            renderer: eframe::Renderer::Wgpu,
+            ..Default::default()
+        };
+        return eframe::run_native(title, options, Box::new(|_cc| Box::new(app)))
+            .map_err(|e| CocotteError::runtime(&format!("charlotte (WGPU) error: {}", e)));
+    }
+
+    // Auto: try WGPU first, fall back to OpenGL (Glow) for older devices
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(title)
@@ -134,13 +167,10 @@ pub fn run_window(
         ..Default::default()
     };
 
-    // First attempt: WGPU (preferred for reliability on Linux)
-    match eframe::run_native(title, options.clone(), Box::new(|_cc| Ok(Box::new(app)))) {
+    match eframe::run_native(title, options.clone(), Box::new(|_cc| Box::new(app))) {
         Ok(_) => Ok(()),
         Err(e) => {
-            eprintln!("[charlotte] WGPU initialization failed: {}. Falling back to OpenGL (Glow)...", e);
-            
-            // Re-create app for second attempt (previous one was moved)
+            eprintln!("[charlotte] WGPU unavailable: {}. Falling back to OpenGL (use charlotte.set_renderer(\"opengl\") to skip this)", e);
             let mut app_interp_fallback = crate::interpreter::Interpreter::new();
             app_interp_fallback.copy_globals_from(interp);
             let app_fallback = CharlotteApp {
@@ -148,10 +178,9 @@ pub fn run_window(
                 state:   GuiState::default(),
                 interp:  app_interp_fallback,
             };
-
             options.renderer = eframe::Renderer::Glow;
-            eframe::run_native(title, options, Box::new(|_cc| Ok(Box::new(app_fallback))))
-                .map_err(|e| CocotteError::runtime(&format!("charlotte fallback error: {}", e)))
+            eframe::run_native(title, options, Box::new(|_cc| Box::new(app_fallback)))
+                .map_err(|e| CocotteError::runtime(&format!("charlotte (OpenGL fallback) error: {}", e)))
         }
     }
 }
@@ -529,6 +558,34 @@ fn make_ui_object() -> Value {
         Ok(Value::Number(h as f64))
     }));
 
+
+    // charlotte.canvas(key, width, height, func(painter) ... end)
+    // Raw painting widget using egui Painter (GPU-accelerated: OpenGL or Vulkan/WGPU).
+    // Allocates a canvas of the given size inside the current window.
+    m.insert("canvas".into(), nfn("charlotte.canvas", Some(4), |args| {
+        let _width  = if let Some(Value::Number(n)) = args.get(1) { *n as f32 } else { 200.0 };
+        let _height = if let Some(Value::Number(n)) = args.get(2) { *n as f32 } else { 200.0 };
+        #[cfg(feature = "gui")]
+        with_ui(|ui| {
+            let (_response, _painter) = ui.allocate_painter(
+                eframe::egui::Vec2::new(_width, _height),
+                eframe::egui::Sense::hover(),
+            );
+        });
+        Ok(Value::Nil)
+    }));
+
+    // charlotte.renderer_info() → string describing active renderer (opengl/wgpu/vulkan)
+    m.insert("renderer_info".into(), nfn("charlotte.renderer_info", Some(0), |_| {
+        let r = FORCED_RENDERER.load(std::sync::atomic::Ordering::SeqCst);
+        let info = match r {
+            1 => "OpenGL (Glow) — forced",
+            2 => "Vulkan/Metal/DX12 (WGPU) — forced",
+            _ => "Auto (WGPU with OpenGL fallback)",
+        };
+        Ok(Value::Str(info.into()))
+    }));
+
     Value::Module(Arc::new(Mutex::new(m)))
 }
 
@@ -581,6 +638,40 @@ pub fn make_charlotte_module() -> Value {
 
     m.insert("has_gui".into(), nfn("charlotte.has_gui", Some(0), |_| {
         Ok(Value::Bool(cfg!(feature = "gui")))
+    }));
+
+    // charlotte.set_renderer("opengl" | "wgpu" | "auto")
+    // Call BEFORE charlotte.window() to choose the rendering backend.
+    // "opengl" — forces OpenGL/Glow: works on older GPUs, VMs, and Pi.
+    // "wgpu"   — forces WGPU (Vulkan/Metal/DX12): best performance.
+    // "auto"   — tries WGPU, falls back to OpenGL automatically (default).
+    m.insert("set_renderer".into(), nfn("charlotte.set_renderer", Some(1), |args| {
+        let r = match args.first() {
+            Some(Value::Str(s)) => s.to_lowercase(),
+            _ => return Err(CocotteError::type_err(
+                "charlotte.set_renderer(\"opengl\" | \"wgpu\" | \"auto\")"
+            )),
+        };
+        let code: u8 = match r.as_str() {
+            "opengl" | "glow" | "gl" | "opengl2" => 1,
+            "wgpu" | "gpu" | "vulkan" => 2,
+            "auto" | "default" => 0,
+            other => return Err(CocotteError::runtime(&format!(
+                "charlotte.set_renderer: unknown renderer \'{}\'. Use \"opengl\", \"wgpu\", or \"auto\"", other
+            ))),
+        };
+        FORCED_RENDERER.store(code, std::sync::atomic::Ordering::SeqCst);
+        Ok(Value::Nil)
+    }));
+
+    // charlotte.renderer() → "opengl" | "wgpu" | "auto"
+    m.insert("renderer".into(), nfn("charlotte.renderer", Some(0), |_| {
+        let r = match FORCED_RENDERER.load(std::sync::atomic::Ordering::SeqCst) {
+            1 => "opengl",
+            2 => "wgpu",
+            _ => "auto",
+        };
+        Ok(Value::Str(r.into()))
     }));
 
     Value::Module(Arc::new(Mutex::new(m)))

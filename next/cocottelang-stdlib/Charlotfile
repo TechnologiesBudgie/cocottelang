@@ -1,0 +1,55 @@
+[project]
+name   = "cocotte"
+author = "Technologies Budgie"
+
+[variables]
+BINARY = "target/debug/cocotte"
+RELEASE = "target/release/cocotte"
+
+[tasks.build]
+cargo build
+
+[tasks.release]
+cargo build --release
+
+[tasks.build-nogui]
+cargo build --no-default-features
+
+[tasks.release-nogui]
+cargo build --release --no-default-features
+
+[tasks.test]
+cargo build
+${BINARY} test
+
+[tasks.test-verbose]
+cargo build
+${BINARY} test --verbose
+
+[tasks.run]
+cargo build
+${BINARY} run demos/native_demo.cot
+
+[tasks.repl]
+cargo build
+${BINARY} repl
+
+[tasks.check]
+cargo check
+
+[tasks.fmt]
+cargo fmt
+
+[tasks.lint]
+cargo clippy
+
+[tasks.install]
+cargo build --release
+install -Dm755 ${RELEASE} /usr/local/bin/cocotte
+
+[tasks.uninstall]
+rm -f /usr/local/bin/cocotte
+
+[tasks.clean]
+cargo clean
+rm -rf dist/ build/ .cocotte_cache

@@ -1,0 +1,64 @@
+# native_demo.cot — Tests cocotte build --native features
+# Run interpreted:  cocotte run src/native_demo.cot
+# Build native:     cocotte build --native --release
+
+# Variables and arithmetic
+var x = 42
+var y = 13
+print "Sum: " + to_string(x + y)
+print "Product: " + to_string(x * y)
+print "Floor div: " + to_string(floor(divide x by y))
+
+# String operations
+var name = "Cocotte"
+print "Hello, " + name + "!"
+print "Upper: " + name.upper()
+print "Length: " + to_string(name.len())
+
+# List operations
+var nums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+var evens = nums.filter(func(n) return n % 2 == 0 end)
+var doubled = evens.map(func(n) return n * 2 end)
+var total = doubled.reduce(func(a, b) return a + b end, 0)
+print "Sum of doubled evens: " + to_string(total)
+
+# Functions
+func factorial(n)
+    if n <= 1 return 1 end
+    return n * factorial(n - 1)
+end
+print "10! = " + to_string(factorial(10))
+
+# Classes
+class Vec2
+    func init(x, y)
+        self.x = x
+        self.y = y
+    end
+    func len()
+        return sqrt(self.x * self.x + self.y * self.y)
+    end
+    func to_str()
+        return "(" + to_string(self.x) + ", " + to_string(self.y) + ")"
+    end
+end
+
+var v = Vec2(3, 4)
+print "Vector: " + v.to_str()
+print "Magnitude: " + to_string(v.len())
+
+# Error handling
+try
+    var f = read_file("__nonexistent__.txt")
+catch err
+    print "Caught error (expected): " + err
+end
+
+# Range and for loop
+var sum = 0
+for i in range(0, 100)
+    sum = sum + i
+end
+print "Sum 0..99: " + to_string(sum)
+
+print "Native demo complete!"

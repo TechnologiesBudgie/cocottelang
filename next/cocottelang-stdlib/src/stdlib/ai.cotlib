@@ -1,0 +1,174 @@
+# ai — High-level AI/ML utilities for Cocotte
+# Wraps the native ai module with convenience helpers.
+# The native module (module add "ai") talks to Ollama-compatible backends.
+#
+# Quick start:
+#   module add "ai"
+#   module add "strings"
+#   var reply = ai.generate("llama3", "What is 2+2?")
+#   print reply
+
+# ── ChatSession — multi-turn conversation manager ────────────────────────────
+
+class ChatSession
+    func init(model, base_url)
+        self.model    = model
+        self.messages = []
+        if base_url == nil
+            self.opts = {"base_url": "http://localhost:11434"}
+        else
+            self.opts = {"base_url": base_url}
+        end
+    end
+
+    # Add a system prompt (call before first user message).
+    func system(msg)
+        self.messages.push({"role": "system", "content": msg})
+    end
+
+    # Send a user message; returns assistant reply string.
+    func chat(user_msg)
+        module add "ai"
+        self.messages.push({"role": "user", "content": user_msg})
+        var reply = ai.chat(self.model, self.messages, self.opts)
+        self.messages.push({"role": "assistant", "content": reply})
+        return reply
+    end
+
+    # Clear conversation history (keeps system prompt if any).
+    func reset()
+        self.messages = self.messages.filter(func(m)
+            return m.get("role") == "system"
+        end)
+    end
+
+    # Return raw message list.
+    func history()
+        return self.messages.copy()
+    end
+
+    # Return number of messages exchanged.
+    func turns()
+        return self.messages.filter(func(m)
+            return m.get("role") == "user"
+        end).len()
+    end
+end
+
+# ── Convenience wrappers ─────────────────────────────────────────────────────
+
+# One-shot text generation with a local Ollama model.
+func generate(model, prompt)
+    module add "ai"
+    return ai.generate(model, prompt, nil)
+end
+
+# One-shot generation with custom base URL.
+func generate_at(model, prompt, base_url)
+    module add "ai"
+    return ai.generate(model, prompt, {"base_url": base_url})
+end
+
+# Chat with OpenAI API.
+func openai(api_key, model, user_prompt)
+    module add "ai"
+    var msgs = [{"role": "user", "content": user_prompt}]
+    return ai.openai_chat(api_key, model, msgs, nil)
+end
+
+# Chat with OpenAI API using system + user messages.
+func openai_with_system(api_key, model, system_prompt, user_prompt)
+    module add "ai"
+    var msgs = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user",   "content": user_prompt}
+    ]
+    return ai.openai_chat(api_key, model, msgs, nil)
+end
+
+# Get embedding vector for text.
+func embed(model, text)
+    module add "ai"
+    return ai.embed(model, text, nil)
+end
+
+# Compute cosine similarity between two texts (embeds both then compares).
+func text_similarity(model, text_a, text_b)
+    module add "ai"
+    var va = ai.embed(model, text_a, nil)
+    var vb = ai.embed(model, text_b, nil)
+    return ai.cosine_similarity(va, vb)
+end
+
+# Find the most similar text from a list.
+func find_similar(model, query, candidates)
+    module add "ai"
+    var q_vec = ai.embed(model, query, nil)
+    var best_score = -1
+    var best_idx   = 0
+    var i = 0
+    for candidate in candidates
+        var c_vec = ai.embed(model, candidate, nil)
+        var score = ai.cosine_similarity(q_vec, c_vec)
+        if score > best_score
+            best_score = score
+            best_idx   = i
+        end
+        i = i + 1
+    end
+    return candidates.get(best_idx)
+end
+
+# List models available on the local Ollama instance.
+func list_models()
+    module add "ai"
+    return ai.models(nil)
+end
+
+# ── Prompt builders ──────────────────────────────────────────────────────────
+
+# Build a classification prompt and parse the result.
+# labels: list of string labels, e.g. ["positive", "negative", "neutral"]
+func classify(model, text, labels)
+    var label_list = labels.join(", ")
+    var prompt = "Classify the following text into exactly one of these categories: "
+        + label_list + ". Respond with only the category name, nothing else.\n\nText: " + text
+    module add "ai"
+    var result = ai.generate(model, prompt, nil).trim().lower()
+    # Match to closest label
+    for label in labels
+        if result.contains(label.lower())
+            return label
+        end
+    end
+    return labels.get(0)
+end
+
+# Summarise text to a target sentence count.
+func summarise(model, text, sentences)
+    if sentences == nil sentences = 3 end
+    var prompt = "Summarise the following text in exactly "
+        + to_string(sentences) + " sentence(s). Output only the summary.\n\nText: " + text
+    module add "ai"
+    return ai.generate(model, prompt, nil).trim()
+end
+
+# Extract structured data as a JSON string.
+func extract_json(model, text, schema_description)
+    var prompt = "Extract information from the following text and return it as JSON matching this schema: "
+        + schema_description + ". Output only valid JSON, no explanation.\n\nText: " + text
+    module add "ai"
+    return ai.generate(model, prompt, nil).trim()
+end
+
+# ── Create helpers ───────────────────────────────────────────────────────────
+
+# Create a new ChatSession with sensible defaults.
+func session(model)
+    return ChatSession(model, "http://localhost:11434")
+end
+
+# Create a ChatSession pointed at an OpenAI-compatible endpoint.
+func session_at(model, base_url)
+    return ChatSession(model, base_url)
+end

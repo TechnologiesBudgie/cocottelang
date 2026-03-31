@@ -3,21 +3,22 @@
 # Sort a list using a key function (returns new sorted list).
 func by(lst, key_fn)
     if lst.len() <= 1 return lst.copy() end
-    var result = lst.map(func(item) return {"key": key_fn(item), "val": item} end)
-    var n = result.len()
-    # Insertion sort (stable)
+    # Build key-value pairs
+    var paired = lst.map(func(item) return {"key": key_fn(item), "val": item} end)
+    var n = paired.len()
+    # Insertion sort (stable) — uses list index assignment (arr[i] = v)
     var i = 1
     while i < n
-        var current = result.get(i)
+        var current = paired.get(i)
         var j = i - 1
-        while j >= 0 and result.get(j).get("key") > current.get("key")
-            result[j + 1] = result.get(j)
+        while j >= 0 and paired.get(j).get("key") > current.get("key")
+            paired[j + 1] = paired.get(j)
             j = j - 1
         end
-        result[j + 1] = current
+        paired[j + 1] = current
         i = i + 1
     end
-    return result.map(func(p) return p.get("val") end)
+    return paired.map(func(p) return p.get("val") end)
 end
 
 # Sort descending by key function.
@@ -43,22 +44,26 @@ func binary_search(lst, target)
         var mid = floor(divide (lo + hi) by 2)
         var val = lst.get(mid)
         if val == target return mid end
-        if val < target lo = mid + 1
-        else hi = mid - 1 end
+        if val < target
+            lo = mid + 1
+        else
+            hi = mid - 1
+        end
     end
     return -1
 end
 
 # Merge sort (returns new sorted list).
 func merge_sort(lst)
-    if lst.len() <= 1 return lst end
-    var mid = floor(divide lst.len() by 2)
+    if lst.len() <= 1 return lst.copy() end
+    var mid   = floor(divide lst.len() by 2)
     var left  = merge_sort(lst.slice(0, mid))
     var right = merge_sort(lst.slice(mid, lst.len()))
-    return _merge(left, right)
+    return _sort_merge(left, right)
 end
 
-func _merge(a, b)
+# Internal merge helper (prefixed to avoid name collision).
+func _sort_merge(a, b)
     var result = []
     var i = 0
     var j = 0
@@ -71,17 +76,19 @@ func _merge(a, b)
             j = j + 1
         end
     end
-    while i < a.len() result.push(a.get(i)) i = i + 1 end
-    while j < b.len() result.push(b.get(j)) j = j + 1 end
+    while i < a.len()
+        result.push(a.get(i))
+        i = i + 1
+    end
+    while j < b.len()
+        result.push(b.get(j))
+        j = j + 1
+    end
     return result
 end
 
-return {
-    by: by,
-    by_desc: by_desc,
-    by_field: by_field,
-    by_field_desc: by_field_desc,
-    binary_search: binary_search,
-    merge_sort: merge_sort,
-}
-
+# Quick-select: find the k-th smallest element (0-indexed, in-place equivalent).
+func kth_smallest(lst, k)
+    var sorted = merge_sort(lst)
+    return sorted.get(k)
+end

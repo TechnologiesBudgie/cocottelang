@@ -133,6 +133,7 @@ pub struct BuildOptions {
     pub release:       bool,
     pub debug_symbols: bool,
     pub verbose:       bool,
+    pub native:        bool,
 }
 
 impl BuildOptions {
@@ -145,6 +146,7 @@ impl BuildOptions {
             release:       false,
             debug_symbols: false,
             verbose:       false,
+            native:        false,
         }
     }
 }
@@ -191,6 +193,19 @@ fn detect_version() -> String {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub fn build_project(opts: &BuildOptions) -> Result<()> {
+    if opts.native {
+        // True AOT: Cocotte → Rust → native binary (no interpreter at runtime)
+        let source = fs::read_to_string(&opts.source_path)
+            .map_err(|e| CocotteError::build_err(&format!("cannot read source: {}", e)))?;
+        let mut lexer = crate::lexer::Lexer::new(&source);
+        let tokens = lexer.tokenize()
+            .map_err(|e| CocotteError::build_err(&format!("syntax error: {}", e)))?;
+        let mut parser = crate::parser::Parser::new(tokens);
+        let program = parser.parse()
+            .map_err(|e| CocotteError::build_err(&format!("parse error: {}", e)))?;
+        return crate::native_codegen::build_native(opts, &source, &program);
+    }
+
     let n_targets = opts.targets.len();
     let plural    = if n_targets == 1 { "target" } else { "targets" };
 
@@ -495,80 +510,70 @@ fn workspace_cargo_toml() -> String {
     r#"[workspace]
 members = ["runner"]
 resolver = "2"
-
-[profile.release]
-opt-level = 3
-lto       = true
-strip     = true
 "#.to_string()
 }
 
+/// Embedded runtime source files (compile-time).
+/// These are baked into the cocotte binary so `cocotte build` works from any install path.
+static EMBEDDED_RT: &[(&str, &str)] = &[
+    ("ast.rs",          include_str!("ast.rs")),
+    ("lexer.rs",        include_str!("lexer.rs")),
+    ("parser.rs",       include_str!("parser.rs")),
+    ("error.rs",        include_str!("error.rs")),
+    ("value.rs",        include_str!("value.rs")),
+    ("environment.rs",  include_str!("environment.rs")),
+    ("interpreter.rs",  include_str!("interpreter.rs")),
+    ("builtins.rs",     include_str!("builtins.rs")),
+    ("modules.rs",      include_str!("modules.rs")),
+    ("compiler.rs",     include_str!("compiler.rs")),
+    ("bytecode.rs",     include_str!("bytecode.rs")),
+    ("vm.rs",           include_str!("vm.rs")),
+    ("charlotfile.rs",  include_str!("charlotfile.rs")),
+    ("codegen.rs",      include_str!("codegen.rs")),
+    ("native_codegen.rs", include_str!("native_codegen.rs")),
+    ("runtime_ctx.rs",  include_str!("runtime_ctx.rs")),
+    ("http_server.rs",  include_str!("http_server.rs")),
+    ("package_manager.rs", include_str!("package_manager.rs")),
+    ("charlotte.rs",    include_str!("charlotte.rs")),
+];
+
 /// Try to find the Cocotte compiler's `src/` directory on disk.
-///
-/// Search order:
-///   1. `COCOTTE_SRC` environment variable — explicit override, always wins.
-///   2. Dev-build layout: exe lives at `target/{profile}/cocotte`, so walk up
-///      three levels to the workspace root and look for `src/`.
-///   3. Well-known system installation paths (populated by `make install`):
-///      `/usr/share/cocotte/src`, `/usr/local/share/cocotte/src`, etc.
-///   4. Paths relative to the current working directory (dev convenience).
+/// Prefers the embedded compile-time sources; falls back to on-disk search.
 fn locate_runtime_src() -> Option<PathBuf> {
-    // 1. Explicit env override — highest priority
-    if let Ok(p) = std::env::var("COCOTTE_SRC") {
-        let c = PathBuf::from(&p);
-        if c.join("interpreter.rs").exists() {
-            return Some(c);
+    // Prefer: write embedded sources to a temp dir and return that path.
+    // This ensures `cocotte build` works even from an installed binary.
+    let tmp = std::env::temp_dir().join("cocotte_rt_embedded");
+    if let Err(e) = fs::create_dir_all(&tmp) {
+        eprintln!("[cocotte] warning: could not create temp dir: {}", e);
+    } else {
+        let mut all_written = true;
+        for (name, src) in EMBEDDED_RT {
+            if let Err(e) = fs::write(tmp.join(name), src) {
+                eprintln!("[cocotte] warning: could not write embedded {}: {}", name, e);
+                all_written = false;
+                break;
+            }
         }
-        // Env was set but path is wrong — warn and continue rather than silently
-        // falling through to a different source tree.
-        eprintln!(
-            "warning: COCOTTE_SRC=\"{}\" set but interpreter.rs not found there",
-            p
-        );
+        if all_written {
+            return Some(tmp);
+        }
     }
 
-    // 2. Dev-build layout: target/debug/cocotte  →  ../../.. → src/
+    // Fallback: look for on-disk source tree (dev builds)
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(candidate) = exe
-            .parent()           // target/debug  (or target/release)
-            .and_then(|p| p.parent())   // target/
-            .and_then(|p| p.parent())   // workspace root
-            .map(|p| p.join("src"))
-        {
-            if candidate.join("interpreter.rs").exists() {
-                return Some(candidate);
-            }
+        let try_fn = |base: &std::path::Path| -> Option<PathBuf> {
+            let c = base.join("src");
+            if c.join("interpreter.rs").exists() { Some(c) } else { None }
+        };
+        if let Some(p) = exe.parent().and_then(|d| d.parent()).and_then(|d| d.parent()).and_then(try_fn) {
+            return Some(p);
         }
     }
-
-    // 3. System install paths — populated by `make install`.
-    //    Also checks XDG user data dir (~/.local/share/cocotte on Linux,
-    //    ~/Library/Application Support/cocotte on macOS).
-    let mut system_prefixes: Vec<PathBuf> = vec![
-        PathBuf::from("/usr/share/cocotte"),
-        PathBuf::from("/usr/local/share/cocotte"),
-        PathBuf::from("/opt/cocotte"),
-    ];
-    if let Some(d) = dirs::data_local_dir() { system_prefixes.push(d.join("cocotte")); }
-    if let Some(d) = dirs::data_dir()       { system_prefixes.push(d.join("cocotte")); }
-    for prefix in &system_prefixes {
-        let c = prefix.join("src");
-        if c.join("interpreter.rs").exists() {
-            return Some(c);
-        }
+    let cwd = std::env::current_dir().ok()?;
+    for rel in &["src", "../src"] {
+        let c = cwd.join(rel);
+        if c.join("interpreter.rs").exists() { return Some(c); }
     }
-
-    // 4. Paths relative to cwd — useful when running `cocotte` from the
-    //    language's own source tree without `cargo install`
-    if let Ok(cwd) = std::env::current_dir() {
-        for rel in &["src", "../src", "cocottelang/src", "../cocottelang/src"] {
-            let c = cwd.join(rel);
-            if c.join("interpreter.rs").exists() {
-                return Some(c);
-            }
-        }
-    }
-
     None
 }
 
@@ -598,6 +603,23 @@ fn setup_runtime_crate(tmp_dir: &Path, rt_src: &Path, verbose: bool) -> Result<(
         substep(&format!("copied {} runtime source file(s)", rs_files.len()));
     }
 
+    // Copy embedded stdlib/ .cotlib files so modules.rs can find them via include_str!
+    let stdlib_src = rt_src.join("stdlib");
+    if stdlib_src.is_dir() {
+        let stdlib_dst = src_dst.join("stdlib");
+        fs::create_dir_all(&stdlib_dst)?;
+        let cotlib_files: Vec<_> = fs::read_dir(&stdlib_src)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map(|x| x == "cotlib").unwrap_or(false))
+            .collect();
+        for entry in &cotlib_files {
+            fs::copy(entry.path(), stdlib_dst.join(entry.file_name()))?;
+        }
+        if verbose {
+            substep(&format!("copied {} stdlib .cotlib file(s)", cotlib_files.len()));
+        }
+    }
+
     // lib.rs re-exports everything public from main.rs's mods
     // We create a lib.rs that declares the same modules as main.rs does.
     let lib_rs = generate_lib_rs();
@@ -606,7 +628,7 @@ fn setup_runtime_crate(tmp_dir: &Path, rt_src: &Path, verbose: bool) -> Result<(
     // Cargo.toml for the runtime crate
     let rt_cargo = r#"[package]
 name    = "cocotte_rt"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [lib]
@@ -621,7 +643,8 @@ indexmap   = "=2.0.2"
 dirs       = "5"
 ureq       = { version = "2", features = ["json"] }
 rusqlite   = { version = "0.31", features = ["bundled"] }
-eframe     = { version = "0.29", optional = true, features = ["wgpu"] }
+rayon      = "1"
+eframe     = { version = "0.29", optional = true, features = ["wgpu", "glow"] }
 egui       = { version = "0.29", optional = true }
 
 [features]
@@ -687,6 +710,11 @@ path = "src/main.rs"
 
 [dependencies]
 cocotte_rt = {{ path = "../cocotte_rt", features = ["gui"] }}
+
+[profile.release]
+opt-level = 3
+lto       = true
+strip     = true
 "#);
 
     fs::write(runner_dir.join("Cargo.toml"), runner_cargo)?;
@@ -728,6 +756,11 @@ edition = "2021"
 [[bin]]
 name = "{project_name}"
 path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto       = true
+strip     = true
 "#);
 
     fs::write(runner_dir.join("Cargo.toml"), cargo)?;
@@ -736,8 +769,6 @@ path = "src/main.rs"
 
 /// Generate a lib.rs that re-exports the interpreter modules.
 fn generate_lib_rs() -> String {
-    // Declare the same modules as main.rs as pub so the runner can use them.
-    // charlotte is conditionally compiled — must match the [features] in Cargo.toml.
     r#"// Auto-generated lib.rs — exposes cocotte runtime modules
 pub mod ast;
 pub mod lexer;
@@ -753,8 +784,10 @@ pub mod bytecode;
 pub mod vm;
 pub mod charlotfile;
 pub mod codegen;
+pub mod native_codegen;
 pub mod runtime_ctx;
 pub mod http_server;
+pub mod package_manager;
 #[cfg(feature = "gui")]
 pub mod charlotte;
 "#.to_string()
@@ -785,12 +818,23 @@ fn emit_source_bundle(opts: &BuildOptions, source: &str, target: &str) -> Result
                 fs::copy(entry.path(), rt_dst.join(entry.file_name()))?;
             }
         }
-        fs::write(rt_dst.join("lib.rs"), generate_lib_rs())?;
+        // Copy stdlib/ cotlib files
+        let stdlib_src = rt_src.join("stdlib");
+        if stdlib_src.is_dir() {
+            let stdlib_dst = rt_dst.join("stdlib");
+            fs::create_dir_all(&stdlib_dst)?;
+            for entry in fs::read_dir(&stdlib_src)?.filter_map(|e| e.ok()) {
+                if entry.path().extension().map(|x| x == "cotlib").unwrap_or(false) {
+                    fs::copy(entry.path(), stdlib_dst.join(entry.file_name()))?;
+                }
+            }
+        }
+    fs::write(rt_dst.join("lib.rs"), generate_lib_rs())?;
 
         // Runtime Cargo.toml
         fs::write(bundle_dir.join("cocotte_rt").join("Cargo.toml"), r#"[package]
 name    = "cocotte_rt"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [lib]
@@ -805,7 +849,8 @@ indexmap   = "=2.0.2"
 dirs       = "5"
 ureq       = { version = "2", features = ["json"] }
 rusqlite   = { version = "0.31", features = ["bundled"] }
-eframe     = { version = "0.29", optional = true, features = ["wgpu"] }
+rayon      = "1"
+eframe     = { version = "0.29", optional = true, features = ["wgpu", "glow"] }
 egui       = { version = "0.29", optional = true }
 
 [features]

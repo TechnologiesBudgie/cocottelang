@@ -17,6 +17,8 @@ pub struct Interpreter {
     pub project_root: std::path::PathBuf,
     /// Whether to print verbose debug info
     pub debug: bool,
+    /// Current call depth — guards against stack overflows from deep recursion
+    call_depth: usize,
 }
 
 impl Interpreter {
@@ -32,6 +34,7 @@ impl Interpreter {
             env,
             project_root: std::env::current_dir().unwrap_or_default(),
             debug: false,
+            call_depth: 0,
         }
     }
 
@@ -447,10 +450,29 @@ impl Interpreter {
         args: Vec<Value>,
         self_val: Option<Value>,
     ) -> Result<Value> {
+        const MAX_CALL_DEPTH: usize = 500;
+        self.call_depth += 1;
+        if self.call_depth > MAX_CALL_DEPTH {
+            self.call_depth -= 1;
+            return Err(CocotteError::runtime(&format!(
+                "Stack overflow: max call depth of {} exceeded", MAX_CALL_DEPTH
+            )));
+        }
+
+        // Capture global functions BEFORE swapping the environment
+        let global_fns = self.env.top_scope_functions();
+
         // Save the current environment, build a child scope on top of it
         let saved_env = std::mem::replace(&mut self.env, Environment::new());
         let mut new_env = Environment::with_parent(saved_env);
         new_env.restore_from_snapshot(&func.closure);
+
+        // Inject global functions so recursive calls and cross-function calls work
+        for (k, v) in global_fns {
+            if !new_env.has_local(&k) {
+                new_env.define_local(&k, v);
+            }
+        }
 
         // Bind parameters
         for (i, param) in func.params.iter().enumerate() {
@@ -462,19 +484,12 @@ impl Interpreter {
             new_env.define_local("self", sv);
         }
 
-        // Inject global user-defined functions so library funcs can call each other
-        // without needing them in the closure snapshot (avoids exponential blowup)
-        let global_fns = self.env.top_scope_functions();
-        for (k, v) in global_fns {
-            if !new_env.has_local(&k) {
-                new_env.define_local(&k, v);
-            }
-        }
         self.env = new_env;
         let result = self.exec_block(&func.body);
         // Restore the parent (saved) environment
         let child = std::mem::replace(&mut self.env, Environment::new());
         self.env = child.into_parent().unwrap_or_else(Environment::new);
+        self.call_depth -= 1;
 
         match result {
             Ok(v) => Ok(v),

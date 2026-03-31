@@ -15,8 +15,10 @@ mod bytecode;
 mod vm;
 mod charlotfile;
 mod codegen;
+mod native_codegen;
 mod runtime_ctx;
 mod http_server;
+mod package_manager;
 #[cfg(feature = "gui")]
 mod charlotte;
 
@@ -136,11 +138,14 @@ enum Commands {
         format: String,
     },
 
-    /// (DUMMY) Cocotte package manager
+    /// Cocotte package manager
     Pkg {
-        /// Subcommand to run
+        /// Subcommand: search install remove update list info publish
         #[arg(default_value = "help")]
         subcommand: String,
+        /// Additional arguments (package names, queries, etc.)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 
     /// Execute a task defined in the Charlotfile
@@ -186,7 +191,7 @@ fn dispatch(cli: Cli) -> Result<()> {
         Commands::Test { dir, verbose }                          => cmd_test(&dir, verbose),
         Commands::Clean                                          => cmd_clean(),
         Commands::Package { format }                             => cmd_package(&format),
-        Commands::Pkg { subcommand }                             => cmd_pkg(&subcommand),
+        Commands::Pkg { subcommand, args }                       => cmd_pkg(&subcommand, &args),
         Commands::Exec { task, verbose }                         => cmd_exec(&task, verbose),
         Commands::Repl                                           => cmd_repl(),
         Commands::Disasm { file }                                => cmd_disasm(&file),
@@ -306,9 +311,8 @@ fn cmd_build(
     build_project(&opts)
 }
 
-fn cmd_pkg(subcommand: &str) -> Result<()> {
-    println!("(DUMMY) Cocotte package manager: '{}'", subcommand);
-    Ok(())
+fn cmd_pkg(subcommand: &str, args: &[String]) -> Result<()> {
+    package_manager::run(subcommand, args)
 }
 
 

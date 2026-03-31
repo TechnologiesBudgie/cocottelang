@@ -159,3 +159,14 @@ impl PartialEq for Value {
         }
     }
 }
+
+// ── Thread safety for parallel module ────────────────────────────────────────
+// Value contains Arc<Mutex<...>> for List/Map/Module (safe to share across
+// threads) and CocotteFunction (body is Vec<Stmt> which is Send + Sync).
+// NativeFunction wraps Arc<dyn Fn(...) + Send + Sync> so it is already Send.
+// ClassInstance fields are HashMap<String,Value> cloned before crossing thread
+// boundaries — each thread gets its own copy. These impls are sound because:
+//   - All interior mutability uses Mutex (not RefCell)
+//   - CocotteFunction.closure is cloned (not shared) into each thread
+unsafe impl Send for Value {}
+unsafe impl Sync for Value {}
