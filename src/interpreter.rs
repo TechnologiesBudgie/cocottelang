@@ -355,6 +355,31 @@ impl Interpreter {
                 let idx = self.eval_expr(index)?;
                 self.get_index(obj, idx, span)
             }
+
+            Expr::FString { segments, .. } => {
+                // segments: [lit0, expr_src1, lit2, expr_src3, ..., litN]
+                // Even indices = literal text, odd indices = expression source to eval
+                let mut result = String::new();
+                for (i, seg) in segments.iter().enumerate() {
+                    if i % 2 == 0 {
+                        result.push_str(seg);
+                    } else {
+                        // Parse and evaluate the expression source
+                        let tokens = crate::lexer::Lexer::new(seg).tokenize()
+                            .map_err(|e| crate::error::CocotteError::runtime(
+                                &format!("f-string expression error: {}", e)
+                            ))?;
+                        let mut parser = crate::parser::Parser::new(tokens);
+                        let expr = parser.parse_fstring_expr()
+                            .map_err(|e| crate::error::CocotteError::runtime(
+                                &format!("f-string expression error: {}", e)
+                            ))?;
+                        let val = self.eval_expr(&expr)?;
+                        result.push_str(&val.to_display());
+                    }
+                }
+                Ok(Value::Str(result))
+            }
         }
     }
 
@@ -839,8 +864,37 @@ impl Interpreter {
                 l.lock().unwrap().push(val);
                 Ok(Value::Nil)
             }
-            "pop" => l.lock().unwrap().pop()
-                .ok_or_else(|| CocotteError::runtime("pop() on empty list")),
+            "pop" => {
+                // pop()  → remove last; pop(i) → remove at index i
+                match args.first() {
+                    None => l.lock().unwrap().pop()
+                        .ok_or_else(|| CocotteError::runtime("pop() on empty list")),
+                    Some(Value::Number(n)) => {
+                        let mut l = l.lock().unwrap();
+                        let len = l.len();
+                        let i = {
+                            let idx = *n as isize;
+                            if idx < 0 { (len as isize + idx) as usize } else { idx as usize }
+                        };
+                        if i < len { Ok(l.remove(i)) }
+                        else { Err(CocotteError::runtime(&format!("pop({}) out of range (length {})", n, len))) }
+                    }
+                    _ => Err(CocotteError::type_err("list.pop() takes no argument or a number index")),
+                }
+            }
+            "insert" => {
+                // insert(i, val) — insert val before index i
+                let idx = match args.get(0) {
+                    Some(Value::Number(n)) => *n as isize,
+                    _ => return Err(CocotteError::type_err("list.insert(i, val) — i must be a number")),
+                };
+                let val = args.get(1).cloned().unwrap_or(Value::Nil);
+                let mut l = l.lock().unwrap();
+                let len = l.len() as isize;
+                let i = (if idx < 0 { len + idx } else { idx }).max(0).min(len) as usize;
+                l.insert(i, val);
+                Ok(Value::Nil)
+            }
             "len" => Ok(Value::Number(l.lock().unwrap().len() as f64)),
             "reverse" => {
                 l.lock().unwrap().reverse();
@@ -862,6 +916,38 @@ impl Interpreter {
                     (Value::Str(x), Value::Str(y)) => x.cmp(y),
                     _ => std::cmp::Ordering::Equal,
                 });
+                Ok(Value::Nil)
+            }
+            "sort_by" => {
+                // sort_by(func(a, b) ... end) — func returns negative/zero/positive number
+                let f = match args.into_iter().next() {
+                    Some(Value::Function(f)) => f,
+                    _ => return Err(CocotteError::type_err(
+                        "list.sort_by() requires a comparator function(a, b) returning a number"
+                    )),
+                };
+                let items = l.lock().unwrap().clone();
+                // Use a simple insertion sort so we can call the Cocotte function
+                // between iterations without fighting the borrow checker.
+                // For typical list sizes this is perfectly fine.
+                let mut sorted: Vec<Value> = Vec::with_capacity(items.len());
+                for item in items {
+                    let mut inserted = false;
+                    for i in 0..sorted.len() {
+                        let cmp = self.call_function(&f, vec![item.clone(), sorted[i].clone()], None)?;
+                        let lt = match cmp {
+                            Value::Number(n) => n < 0.0,
+                            _ => return Err(CocotteError::type_err("sort_by comparator must return a number")),
+                        };
+                        if lt {
+                            sorted.insert(i, item.clone());
+                            inserted = true;
+                            break;
+                        }
+                    }
+                    if !inserted { sorted.push(item); }
+                }
+                *l.lock().unwrap() = sorted;
                 Ok(Value::Nil)
             }
             "get" => {
@@ -984,7 +1070,7 @@ impl Interpreter {
             }
             other => Err(CocotteError::runtime_at(
                 span.line, span.col,
-                &format!("List has no method '{}'. Available: push pop get len is_empty first last contains index_of find slice map filter reduce each count extend copy clear reverse sort join", other),
+                &format!("List has no method '{}'. Available: push pop insert get len is_empty first last contains index_of find slice map filter reduce each count extend copy clear reverse sort sort_by join", other),
             )),
         }
     }
@@ -1021,9 +1107,31 @@ impl Interpreter {
                 Ok(Value::List(Arc::new(Mutex::new(vals))))
             }
             "len" => Ok(Value::Number(m.lock().unwrap().len() as f64)),
+            "remove" => {
+                let key = args.get(0).map(|v| v.to_display()).unwrap_or_default();
+                let removed = m.lock().unwrap().remove(&key);
+                Ok(removed.unwrap_or(Value::Nil))
+            }
+            "merge" => {
+                let other = match args.into_iter().next() {
+                    Some(Value::Map(other)) => other,
+                    _ => return Err(CocotteError::type_err("map.merge() requires a map")),
+                };
+                let other_clone = other.lock().unwrap().clone();
+                m.lock().unwrap().extend(other_clone);
+                Ok(Value::Nil)
+            }
+            "entries" => {
+                let entries: Vec<Value> = m.lock().unwrap().iter()
+                    .map(|(k, v)| Value::List(Arc::new(Mutex::new(vec![
+                        Value::Str(k.clone()), v.clone()
+                    ]))))
+                    .collect();
+                Ok(Value::List(Arc::new(Mutex::new(entries))))
+            }
             other => Err(CocotteError::runtime_at(
                 span.line, span.col,
-                &format!("Map has no method '{}'", other),
+                &format!("Map has no method '{}'. Available: get set has_key keys values len remove merge entries", other),
             )),
         }
     }

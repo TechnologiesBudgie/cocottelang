@@ -182,6 +182,12 @@ pub enum Expr {
     },
     /// self reference inside a class method
     SelfRef(Span),
+    /// f"Hello {name}!" — alternating literal/expr segments (same layout as lexer)
+    FString {
+        /// Alternating: [literal, expr_src, literal, expr_src, ..., literal]
+        segments: Vec<String>,
+        span: Span,
+    },
 }
 
 /// Binary operators

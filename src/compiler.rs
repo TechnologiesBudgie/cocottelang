@@ -380,6 +380,17 @@ impl Compiler {
                     code: fc.chunk.instructions,
                 });
             }
+            // FString: the bytecode VM falls back to the tree-walk interpreter
+            // for f-string evaluation (they are rare in hot loops). Emit a
+            // LoadConst with a sentinel string so the VM can detect and handle it.
+            Expr::FString { segments, .. } => {
+                // Encode segments as a special string the VM reconstructs at runtime.
+                // Format: "\x00fstring\x00" + JSON-encoded segments array.
+                let encoded = serde_json::to_string(segments)
+                    .unwrap_or_else(|_| "[]".to_string());
+                let sentinel = format!("\x00fstring\x00{}", encoded);
+                self.emit(Instruction::LoadConst(crate::value::Value::Str(sentinel)));
+            }
         }
         Ok(())
     }

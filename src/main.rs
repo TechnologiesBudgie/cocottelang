@@ -85,6 +85,11 @@ enum Commands {
         #[arg(long)]
         release: bool,
 
+        /// Shorthand for --release targeting the current host only.
+        /// Equivalent to `cocotte build --release` with no --os / --arch flags.
+        #[arg(long, conflicts_with_all = ["os", "arch"])]
+        native: bool,
+
         /// Include debug symbols
         #[arg(long)]
         symbols: bool,
@@ -168,8 +173,13 @@ fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Init { name }                                  => cmd_init(&name),
         Commands::Run { file, debug, bytecode }                  => cmd_run(&file, debug, bytecode),
-        Commands::Build { file, os, arch, release, symbols, verbose, out } =>
-            cmd_build(&file, &os, &arch, release, symbols, verbose, &out),
+        Commands::Build { file, os, arch, release, native, symbols, verbose, out } => {
+            // --native is a convenience alias for --release on the host machine
+            let effective_release = release || native;
+            let effective_os: Vec<String>   = if native { vec![] } else { os };
+            let effective_arch: Vec<String> = if native { vec![] } else { arch };
+            cmd_build(&file, &effective_os, &effective_arch, effective_release, symbols, verbose, &out)
+        }
         Commands::Add { target }                                 => cmd_add(&target),
         Commands::New { kind, name }                             => cmd_new(&kind, &name),
         Commands::Test { dir, verbose }                          => cmd_test(&dir, verbose),

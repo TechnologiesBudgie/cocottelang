@@ -1,6 +1,6 @@
 # Cocotte Language Reference
 
-**Version 0.1.0**
+**Version 0.1.2**
 
 Cocotte is a compiled and interpreted programming language with English-like syntax. It runs on Linux, Windows, macOS, and BSD across all common CPU architectures. Source files use the `.cot` extension. The same `cocotte` binary interprets, compiles, tests, and manages projects.
 
@@ -150,6 +150,7 @@ Compile a `.cot` file to a native binary. Output goes to `dist/`.
 ```sh
 cocotte build                                        # current OS and arch
 cocotte build --release                              # optimised (LTO, strip)
+cocotte build --native                               # shorthand: --release for this machine
 cocotte build --os linux --arch aarch64              # cross-compile
 cocotte build --os linux windows --arch x86_64 aarch64  # 4 binaries at once
 ```
@@ -159,10 +160,13 @@ cocotte build --os linux windows --arch x86_64 aarch64  # 4 binaries at once
 | `--os <OS...>` | `linux`, `windows`, `macos`, `bsd` |
 | `--arch <ARCH...>` | `x86_64`, `aarch64`, `armv7`, `i686`, `riscv64` |
 | `--release` | Enable optimisations |
+| `--native` | Shorthand for `--release` targeting the current machine only (cannot be combined with `--os` / `--arch`) |
 | `--out <dir>` | Output directory (default: `dist/`) |
 | `--verbose` | Show internal build steps |
 
 When both `--os` and `--arch` are given, all combinations are built. See [§16 Cross-Compilation](#16-cross-compilation).
+
+> **No Rust installed?** No problem. If `cargo` is not found on your PATH, `cocotte build` will automatically download and install a minimal Rust toolchain into `~/.cocotte/toolchain/` the first time you build. Subsequent builds use the cached toolchain and are fast. You never need to install Rust manually.
 
 ---
 
@@ -303,12 +307,35 @@ print type_of(nil)      # nil
 | `+` | Add / string concat | `5 + 3` → `8`, `"a" + "b"` → `"ab"` |
 | `-` | Subtract | `5 - 3` → `2` |
 | `*` | Multiply | `4 * 3` → `12` |
-| `divide A by B` | Divide | `divide 10 by 3` → `3.333...` |
+| `/` | Divide | `10 / 3` → `3.333...` |
+| `divide A by B` | Divide (English form) | `divide 10 by 3` → `3.333...` |
 | `%` | Remainder | `10 % 3` → `1` |
 
-Division uses `divide A by B` — not `/`. For integer division use `floor(divide A by B)`.
+Both `/` and `divide A by B` are valid — use whichever reads better. For integer division use `floor(10 / 3)`.
 
 `+` coerces numbers and bools to strings automatically: `"Score: " + 42` → `"Score: 42"`.
+
+---
+
+### String interpolation (f-strings)
+
+Use `f"..."` to embed expressions directly inside a string. Wrap any expression in `{}`:
+
+```cocotte
+var name  = "Alice"
+var score = 95
+print f"Hello, {name}! Your score is {score}."
+# Hello, Alice! Your score is 95.
+
+var item  = "apple"
+var count = 3
+print f"You have {count * 2} {item}s."
+# You have 6 apples.
+```
+
+- Any valid Cocotte expression works inside `{}`: variables, arithmetic, method calls, function calls.
+- Use `{{` and `}}` to emit a literal brace: `f"{{not interpolated}}"` → `"{not interpolated}"`.
+- Single-quoted f-strings work too: `f'Hello {name}'`.
 
 #### Comparison
 
@@ -588,6 +615,8 @@ print "a,b,c".split(",").join(" + ")        # "a + b + c"
 | `.last()` | Last item |
 | `.push(val)` | Append to end (in place) |
 | `.pop()` | Remove and return last item (in place) |
+| `.pop(i)` | Remove and return item at index `i` (in place) |
+| `.insert(i, val)` | Insert `val` before index `i` (in place) |
 | `.contains(val)` | True if `val` is present |
 | `.index_of(val)` | Index of `val`; `-1` if absent |
 | `.slice(from, to)` | Sub-list `[from, to)` |
@@ -597,7 +626,8 @@ print "a,b,c".split(",").join(" + ")        # "a + b + c"
 | `.reduce(func, init)` | Fold all items starting from `init` |
 | `.each(func)` | Call `func` on every item; returns nil |
 | `.count(func)` | Number of items where `func` returns true |
-| `.sort()` | Sort in place |
+| `.sort()` | Sort in place (numbers or strings) |
+| `.sort_by(func)` | Sort in place using comparator `func(a, b)` → negative/zero/positive |
 | `.reverse()` | Reverse in place |
 | `.join(sep)` | Join all items into a string |
 | `.extend(other)` | Append all items from `other` (in place) |
@@ -610,6 +640,18 @@ nums.sort()
 print nums.join(", ")                                     # 1, 2, 3, 5, 8, 9
 print nums.filter(func(n) return n % 2 == 0 end).join(", ")  # 2, 8
 print nums.reduce(func(acc, n) return acc + n end, 0)     # 28
+
+# Sort objects by a field
+var people = [{"name": "Charlie"}, {"name": "Alice"}, {"name": "Bob"}]
+people.sort_by(func(a, b)
+    if a.get("name") < b.get("name") return -1 end
+    if a.get("name") > b.get("name") return 1 end
+    return 0
+end)
+
+# Insert and pop by index
+nums.insert(0, 99)   # prepend 99
+nums.pop(0)          # remove first element
 ```
 
 ---
@@ -624,13 +666,31 @@ print nums.reduce(func(acc, n) return acc + n end, 0)     # 28
 | `.keys()` | List of all keys |
 | `.values()` | List of all values |
 | `.len()` | Number of entries |
+| `.remove(key)` | Remove `key` and return its value (nil if absent) |
+| `.merge(other)` | Copy all entries from `other` into this map (in place) |
+| `.entries()` | List of `[key, value]` pairs |
+
+**Dot-access shorthand:** for string keys that are valid identifiers, you can read a map field using `.` instead of `.get()`:
 
 ```cocotte
 var cfg = {"host": "localhost", "port": 8080}
+print cfg.host    # "localhost"  — same as cfg.get("host")
+print cfg.port    # 8080
+
 cfg.set("debug", true)
 for key in cfg.keys()
-    print key + ": " + cfg.get(key)
+    print f"{key}: {cfg.get(key)}"
 end
+
+# remove and merge
+var extra = {"timeout": 30}
+cfg.merge(extra)
+cfg.remove("debug")
+print cfg.entries().len()   # 3
+
+# Dot-access also works on JSON/SQLite results:
+var user = http.get_json("https://api.example.com/me")
+print f"Hello, {user.name}!"
 ```
 
 ---
@@ -976,11 +1036,36 @@ print tables.join(", ")    # users
 |----------|-------------|
 | `sqlite.open(path)` | Open or create a database file; returns db handle (string) |
 | `sqlite.exec(db, sql)` | Execute SQL with no return value (CREATE, INSERT, UPDATE, DELETE) |
+| `sqlite.exec_params(db, sql, params)` | **Safe** parameterised exec — pass user data as a list, never as string interpolation |
 | `sqlite.query(db, sql)` | Execute SELECT; returns list of maps (one map per row) |
+| `sqlite.query_params(db, sql, params)` | **Safe** parameterised SELECT |
 | `sqlite.query_one(db, sql)` | Execute SELECT; returns first row as map, or nil |
 | `sqlite.tables(db)` | Returns list of table name strings |
 
 Each row map has column names as keys. Values are typed: integers and floats become `number`, text becomes `string`, NULL becomes `nil`, blobs become a hex string.
+
+**Parameterised queries (recommended for user data):** use `?` placeholders in SQL and pass values as a list. This completely prevents SQL injection — no manual escaping needed.
+
+```cocotte
+module add "sqlite"
+
+var db = sqlite.open("app.db")
+sqlite.exec(db, "CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)")
+
+# Safe insert — user input goes in the list, never in the SQL string
+var user_input = "O'Brien"
+sqlite.exec_params(db, "INSERT INTO items(name) VALUES(?)", [user_input])
+
+# Safe query
+var name_filter = "Alice"
+var rows = sqlite.query_params(db, "SELECT * FROM items WHERE name = ?", [name_filter])
+for row in rows
+    print f"{row.id}: {row.name}"
+end
+
+# Multiple params
+sqlite.exec_params(db, "UPDATE items SET name=? WHERE id=?", ["Bob", 1])
+```
 
 ---
 

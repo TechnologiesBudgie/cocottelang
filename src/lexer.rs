@@ -9,6 +9,9 @@ pub enum TokenKind {
     // Literals
     Number(f64),
     StringLit(String),
+    /// f"Hello {name}!" — list of alternating literal / expression-source segments
+    /// Even indices are literal strings, odd indices are expression source strings
+    FStringLit(Vec<String>),
     Bool(bool),
     Nil,
 
@@ -256,6 +259,73 @@ impl Lexer {
         }
     }
 
+    /// Read an f-string, returning alternating literal/expr segments.
+    /// Segment[0], [2], [4]... are literal text.
+    /// Segment[1], [3], [5]... are raw expression source strings.
+    fn read_fstring(&mut self, quote: char) -> Result<Vec<String>> {
+        let line = self.line;
+        let col = self.col;
+        let mut segments: Vec<String> = Vec::new();
+        let mut literal = String::new();
+        loop {
+            match self.advance() {
+                None => return Err(CocotteError::lexer(line, col, "Unterminated f-string")),
+                Some(c) if c == quote => break,
+                Some('{') => {
+                    // Could be {{ (escaped brace) or {expr}
+                    if self.peek() == Some('{') {
+                        self.advance();
+                        literal.push('{');
+                    } else {
+                        // Collect expression source until matching '}'
+                        segments.push(literal.clone());
+                        literal.clear();
+                        let mut expr_src = String::new();
+                        let mut depth = 1usize;
+                        loop {
+                            match self.advance() {
+                                None => return Err(CocotteError::lexer(
+                                    line, col, "Unterminated f-string expression"
+                                )),
+                                Some('}') => {
+                                    depth -= 1;
+                                    if depth == 0 { break; }
+                                    expr_src.push('}');
+                                }
+                                Some('{') => { depth += 1; expr_src.push('{'); }
+                                Some(c) => expr_src.push(c),
+                            }
+                        }
+                        segments.push(expr_src);
+                    }
+                }
+                Some('}') => {
+                    if self.peek() == Some('}') {
+                        self.advance();
+                        literal.push('}');
+                    } else {
+                        literal.push('}');
+                    }
+                }
+                Some('\\') => {
+                    match self.advance() {
+                        Some('n')  => literal.push('\n'),
+                        Some('t')  => literal.push('\t'),
+                        Some('r')  => literal.push('\r'),
+                        Some('\\') => literal.push('\\'),
+                        Some('"')  => literal.push('"'),
+                        Some('\'') => literal.push('\''),
+                        Some(c)    => { literal.push('\\'); literal.push(c); }
+                        None => return Err(CocotteError::lexer(line, col, "Unterminated escape in f-string")),
+                    }
+                }
+                Some(c) => literal.push(c),
+            }
+        }
+        segments.push(literal);
+        Ok(segments)
+    }
+
     fn next_token(&mut self) -> Result<Token> {
         // Skip inline whitespace (spaces/tabs)
         self.skip_whitespace_inline();
@@ -331,6 +401,14 @@ impl Lexer {
             }
             Some(c) if c.is_alphabetic() || c == '_' => {
                 let ident = self.read_ident(c);
+                // f"..." and f'...' — f-string literals
+                if ident == "f" {
+                    if self.peek() == Some('"') || self.peek() == Some('\'') {
+                        let quote = self.advance().unwrap();
+                        let segments = self.read_fstring(quote)?;
+                        return Ok(Token::new(TokenKind::FStringLit(segments), line, col));
+                    }
+                }
                 let kind = Self::keyword_or_ident(&ident);
                 Ok(Token::new(kind, line, col))
             }

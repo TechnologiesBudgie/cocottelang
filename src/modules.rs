@@ -252,7 +252,14 @@ fn cocotte_to_json(v: &Value) -> serde_json::Value {
     match v {
         Value::Nil => serde_json::Value::Null,
         Value::Bool(b) => serde_json::Value::Bool(*b),
-        Value::Number(n) => serde_json::json!(n),
+        Value::Number(n) => {
+            // Emit whole numbers as JSON integers, not 95.0
+            if n.fract() == 0.0 && n.abs() < 9007199254740992.0 {
+                serde_json::Value::Number(serde_json::Number::from(*n as i64))
+            } else {
+                serde_json::json!(n)
+            }
+        }
         Value::Str(s) => serde_json::Value::String(s.clone()),
         Value::List(l) => {
             let items: Vec<serde_json::Value> = l.lock().unwrap().iter()
@@ -694,5 +701,98 @@ fn make_sqlite_module() -> Value {
         }),
     }));
 
+    // sqlite.exec_params(db, sql, params) — safe parameterised exec, no SQL injection risk
+    // Usage: sqlite.exec_params(db, "INSERT INTO t(name) VALUES(?)", [user_input])
+    ns.insert("exec_params".into(), Value::NativeFunction(NativeFunction {
+        name: "sqlite.exec_params".into(),
+        arity: Some(3),
+        func: Arc::new(|args| {
+            let path = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.exec_params(db, sql, params) — db must be a string")),
+            };
+            let sql = match args.get(1) {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.exec_params(db, sql, params) — sql must be a string")),
+            };
+            let params: Vec<rusqlite::types::Value> = match args.get(2) {
+                Some(Value::List(l)) => l.lock().unwrap().iter().map(sql_param).collect(),
+                _ => return Err(CocotteError::type_err("sqlite.exec_params(db, sql, params) — params must be a list")),
+            };
+            let conn = Connection::open(&path)
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.exec_params failed: {}", e)))?;
+            conn.execute(&sql, rusqlite::params_from_iter(params.iter()))
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.exec_params failed: {}", e)))?;
+            Ok(Value::Nil)
+        }),
+    }));
+
+    // sqlite.query_params(db, sql, params) — safe parameterised SELECT
+    // Usage: sqlite.query_params(db, "SELECT * FROM t WHERE name=?", [name])
+    ns.insert("query_params".into(), Value::NativeFunction(NativeFunction {
+        name: "sqlite.query_params".into(),
+        arity: Some(3),
+        func: Arc::new(|args| {
+            let path = match args.first() {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.query_params(db, sql, params) — db must be a string")),
+            };
+            let sql = match args.get(1) {
+                Some(Value::Str(s)) => s.clone(),
+                _ => return Err(CocotteError::type_err("sqlite.query_params(db, sql, params) — sql must be a string")),
+            };
+            let params: Vec<rusqlite::types::Value> = match args.get(2) {
+                Some(Value::List(l)) => l.lock().unwrap().iter().map(sql_param).collect(),
+                _ => return Err(CocotteError::type_err("sqlite.query_params(db, sql, params) — params must be a list")),
+            };
+            let conn = Connection::open(&path)
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.query_params failed: {}", e)))?;
+            let mut stmt = conn.prepare(&sql)
+                .map_err(|e| CocotteError::runtime(&format!("sqlite.query_params prepare failed: {}", e)))?;
+            let col_names: Vec<String> = stmt.column_names().into_iter().map(|s| s.to_string()).collect();
+            let rows_iter = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
+                let mut map: HashMap<String, Value> = HashMap::new();
+                for (i, col) in col_names.iter().enumerate() {
+                    let val: rusqlite::types::Value = row.get(i).unwrap_or(rusqlite::types::Value::Null);
+                    let cv = match val {
+                        rusqlite::types::Value::Null       => Value::Nil,
+                        rusqlite::types::Value::Integer(n) => Value::Number(n as f64),
+                        rusqlite::types::Value::Real(f)    => Value::Number(f),
+                        rusqlite::types::Value::Text(s)    => Value::Str(s),
+                        rusqlite::types::Value::Blob(b)    => Value::Str(
+                            b.iter().map(|byte| format!("{:02x}", byte)).collect()
+                        ),
+                    };
+                    map.insert(col.clone(), cv);
+                }
+                Ok(map)
+            }).map_err(|e| CocotteError::runtime(&format!("sqlite.query_params execute failed: {}", e)))?;
+            let mut results: Vec<Value> = Vec::new();
+            for row in rows_iter {
+                let map = row.map_err(|e| CocotteError::runtime(&format!("sqlite.query_params row error: {}", e)))?;
+                results.push(Value::Map(Arc::new(Mutex::new(map))));
+            }
+            Ok(Value::List(Arc::new(Mutex::new(results))))
+        }),
+    }));
+
     Value::Module(Arc::new(Mutex::new(ns)))
+}
+
+/// Convert a Cocotte Value to a rusqlite owned value for parameterised queries.
+/// This is the safe alternative to string interpolation.
+fn sql_param(v: &Value) -> rusqlite::types::Value {
+    match v {
+        Value::Nil       => rusqlite::types::Value::Null,
+        Value::Number(n) => {
+            if n.fract() == 0.0 && n.abs() < 9007199254740992.0 {
+                rusqlite::types::Value::Integer(*n as i64)
+            } else {
+                rusqlite::types::Value::Real(*n)
+            }
+        }
+        Value::Str(s)    => rusqlite::types::Value::Text(s.clone()),
+        Value::Bool(b)   => rusqlite::types::Value::Integer(if *b { 1 } else { 0 }),
+        other            => rusqlite::types::Value::Text(other.to_display()),
+    }
 }

@@ -123,6 +123,11 @@ impl Parser {
         Ok(Program { statements })
     }
 
+    /// Parse a single expression — used by f-string interpolation
+    pub fn parse_fstring_expr(&mut self) -> Result<Expr> {
+        self.parse_expr()
+    }
+
     // ── Statements ────────────────────────────────────────────────────────────
 
     fn parse_stmt(&mut self) -> Result<Stmt> {
@@ -585,6 +590,11 @@ impl Parser {
             TokenKind::Number(n) => {
                 self.advance();
                 Ok(Expr::Number(n))
+            }
+            TokenKind::FStringLit(segments) => {
+                let span = Span::new(tok.line, tok.col);
+                self.advance();
+                Ok(Expr::FString { segments, span })
             }
             TokenKind::StringLit(s) => {
                 self.advance();
