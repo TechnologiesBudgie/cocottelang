@@ -330,32 +330,74 @@ fn build_for_target(
         if !triple.is_empty() { format!(" --target {}", triple) } else { String::new() },
     ));
 
+    // ── Detect rustup "no default toolchain" in stderr ───────────────────────
+    let is_rustup_no_toolchain = |stderr: &str| -> bool {
+        stderr.contains("rustup could not choose a version")
+            || stderr.contains("no default is configured")
+            || stderr.contains("rustup default stable")
+    };
+
+    // ── Copy built binary to dist/ ────────────────────────────────────────────
+    let copy_output = |profile: &str| -> Result<()> {
+        let base_name = if matches!(os, TargetOS::Windows) {
+            format!("{}.exe", opts.project_name)
+        } else {
+            opts.project_name.clone()
+        };
+        let native_path = tmp_dir.join("target").join(profile).join(&base_name);
+        let cross_path  = tmp_dir.join("target").join(&triple).join(profile).join(&base_name);
+        match [native_path, cross_path].into_iter().find(|p| p.exists()) {
+            Some(p) => {
+                fs::copy(&p, &out_path)?;
+                step("Compiled", &out_path.display().to_string().green().bold().to_string());
+            }
+            None => step_warn("Warning", "cargo succeeded but binary not found in target/"),
+        }
+        Ok(())
+    };
+
+    let profile = if opts.release { "release" } else { "debug" };
+
+    // ── First attempt: whatever cargo run_cargo_with_progress resolves ────────
     match run_cargo_with_progress(&cargo_args, &tmp_dir, opts.verbose) {
-        Ok(status) if status.success() => {
-            let profile   = if opts.release { "release" } else { "debug" };
-            let base_name = if matches!(os, TargetOS::Windows) {
-                format!("{}.exe", opts.project_name)
-            } else {
-                opts.project_name.clone()
-            };
+        Ok((status, stderr)) if status.success() => {
+            if !stderr.trim().is_empty() { eprint!("{}", stderr); }
+            copy_output(profile)?;
+        }
 
-            let native_path = tmp_dir.join("target").join(profile).join(&base_name);
-            let cross_path  = tmp_dir.join("target").join(&triple).join(profile).join(&base_name);
-
-            match [native_path, cross_path].into_iter().find(|p| p.exists()) {
-                Some(p) => {
-                    fs::copy(&p, &out_path)?;
-                    step("Compiled", &out_path.display().to_string().green().bold().to_string());
+        Ok((_, stderr)) if is_rustup_no_toolchain(&stderr) => {
+            // rustup shim is on PATH but has no toolchain configured.
+            // Silently bootstrap our own toolchain and retry.
+            step("Bootstrap", "rustup has no default toolchain — installing bundled toolchain");
+            match ensure_bundled_cargo(opts.verbose) {
+                Some(cargo_path) => {
+                    match run_cargo_with_progress_using(&cargo_path, &cargo_args, &tmp_dir, opts.verbose) {
+                        Ok((s, se)) if s.success() => {
+                            if !se.trim().is_empty() { eprint!("{}", se); }
+                            copy_output(profile)?;
+                        }
+                        Ok((_, se)) => {
+                            if !se.trim().is_empty() { eprint!("{}", se); }
+                            step_warn("Warning", "bundled cargo build failed — emitting source bundle");
+                            emit_source_bundle(opts, source, &label)?;
+                        }
+                        Err(e) => {
+                            step_warn("Warning", &format!("bundled cargo error: {} — emitting source bundle", e));
+                            emit_source_bundle(opts, source, &label)?;
+                        }
+                    }
                 }
                 None => {
-                    step_warn("Warning", "cargo succeeded but binary not found in target/");
-                    if opts.verbose {
-                        substep(&format!("searched: {}", tmp_dir.join("target").display()));
-                    }
+                    step_warn("Warning", "bootstrap failed — emitting source bundle");
+                    substep("fix your Rust install with: rustup default stable");
+                    emit_source_bundle(opts, source, &label)?;
                 }
             }
         }
-        Ok(status) => {
+
+        Ok((status, stderr)) => {
+            // Real cargo build error — show output, emit source bundle.
+            if !stderr.trim().is_empty() { eprint!("{}", stderr); }
             step_warn("Warning", &format!(
                 "cargo exited {} — emitting source bundle",
                 status.code().map(|c| c.to_string()).unwrap_or_else(|| "?".into()),
@@ -365,41 +407,30 @@ fn build_for_target(
             }
             emit_source_bundle(opts, source, &label)?;
         }
+
         Err(_) => {
-            // Try to bootstrap a bundled toolchain before giving up
+            // cargo binary not on PATH at all — bootstrap from scratch.
             match ensure_bundled_cargo(opts.verbose) {
                 Some(cargo_path) => {
-                    // Re-run with the bundled cargo
                     match run_cargo_with_progress_using(&cargo_path, &cargo_args, &tmp_dir, opts.verbose) {
-                        Ok(status) if status.success() => {
-                            let profile   = if opts.release { "release" } else { "debug" };
-                            let base_name = if matches!(os, TargetOS::Windows) {
-                                format!("{}.exe", opts.project_name)
-                            } else {
-                                opts.project_name.clone()
-                            };
-                            let native_path = tmp_dir.join("target").join(profile).join(&base_name);
-                            let cross_path  = tmp_dir.join("target").join(&triple).join(profile).join(&base_name);
-                            match [native_path, cross_path].into_iter().find(|p| p.exists()) {
-                                Some(p) => {
-                                    fs::copy(&p, &out_path)?;
-                                    step("Compiled", &out_path.display().to_string().green().bold().to_string());
-                                }
-                                None => {
-                                    step_warn("Warning", "cargo succeeded but binary not found");
-                                }
-                            }
+                        Ok((s, se)) if s.success() => {
+                            if !se.trim().is_empty() { eprint!("{}", se); }
+                            copy_output(profile)?;
                         }
-                        _ => {
+                        Ok((_, se)) => {
+                            if !se.trim().is_empty() { eprint!("{}", se); }
                             step_warn("Warning", "bundled cargo failed — emitting source bundle");
+                            emit_source_bundle(opts, source, &label)?;
+                        }
+                        Err(e) => {
+                            step_warn("Warning", &format!("bundled cargo error: {} — emitting source bundle", e));
                             emit_source_bundle(opts, source, &label)?;
                         }
                     }
                 }
                 None => {
-                    step_warn("Warning", "cargo not found — emitting source bundle");
-                    substep("install Rust from https://rustup.rs then retry");
-                    substep("  or:  cocotte will auto-install it next time if you have internet access");
+                    step_warn("Warning", "cargo not found and bootstrap failed — emitting source bundle");
+                    substep("install Rust from https://rustup.rs, or cocotte will auto-install it with internet access");
                     emit_source_bundle(opts, source, &label)?;
                 }
             }
@@ -422,14 +453,10 @@ fn run_cargo_with_progress(
     args:     &[String],
     work_dir: &Path,
     verbose:  bool,
-) -> std::io::Result<std::process::ExitStatus> {
-    // Resolve cargo path — prefer PATH, then bundled cache (already installed)
-    let cargo_bin = which_cargo()
-        .or_else(|_| {
-            let p = cocotte_toolchain_dir().join("cargo").join("bin")
-                .join(if cfg!(windows) { "cargo.exe" } else { "cargo" });
-            if p.exists() { Ok(p) } else { Err(std::io::Error::new(std::io::ErrorKind::NotFound, "cargo not found")) }
-        })?;
+) -> std::io::Result<(std::process::ExitStatus, String)> {
+    // Only use the PATH cargo here. If it's a broken rustup shim, the caller
+    // will detect that from stderr and trigger ensure_bundled_cargo separately.
+    let cargo_bin = which_cargo()?;
     run_cargo_with_progress_using(&cargo_bin, args, work_dir, verbose)
 }
 
@@ -442,34 +469,40 @@ fn run_cargo_with_progress_using(
     args:     &[String],
     work_dir: &Path,
     verbose:  bool,
-) -> std::io::Result<std::process::ExitStatus> {
+) -> std::io::Result<(std::process::ExitStatus, String)> {
     use std::io::BufRead;
 
-    // Set CARGO_HOME / RUSTUP_HOME to the bundled toolchain directory so the
-    // invoked cargo uses its own registry cache, not the system one.
-    let toolchain_dir = cocotte_toolchain_dir();
-    let cargo_home  = toolchain_dir.join("cargo");
-    let rustup_home = toolchain_dir.join("rustup");
+    // Only redirect CARGO_HOME / RUSTUP_HOME when using the bundled toolchain
+    // (i.e. when cargo lives inside our private ~/.cocotte/toolchain/ dir).
+    // For the system cargo we leave env vars alone.
+    let toolchain_dir   = cocotte_toolchain_dir();
+    let is_bundled      = cargo.starts_with(&toolchain_dir);
+    let cargo_home      = toolchain_dir.join("cargo");
+    let rustup_home     = toolchain_dir.join("rustup");
+
+    let mut cmd_base = std::process::Command::new(cargo);
+    cmd_base.current_dir(work_dir);
+    if is_bundled {
+        cmd_base
+            .env("CARGO_HOME",       &cargo_home)
+            .env("RUSTUP_HOME",      &rustup_home)
+            .env_remove("RUSTUP_TOOLCHAIN");
+    }
 
     if verbose {
-        return std::process::Command::new(cargo)
+        let status = cmd_base
             .args(args)
-            .current_dir(work_dir)
-            .env("CARGO_HOME",  &cargo_home)
-            .env("RUSTUP_HOME", &rustup_home)
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
-            .status();
+            .status()?;
+        return Ok((status, String::new()));
     }
 
     let mut json_args = args.to_vec();
     json_args.push("--message-format=json-render-diagnostics".into());
 
-    let mut child = std::process::Command::new(cargo)
+    let mut child = cmd_base
         .args(&json_args)
-        .current_dir(work_dir)
-        .env("CARGO_HOME",  &cargo_home)
-        .env("RUSTUP_HOME", &rustup_home)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
@@ -522,11 +555,8 @@ fn run_cargo_with_progress_using(
 
     let status = child.wait()?;
     let captured_stderr = stderr_handle.join().unwrap_or_default();
-    if !captured_stderr.trim().is_empty() {
-        eprint!("{}", captured_stderr);
-    }
-
-    Ok(status)
+    // Always return stderr to the caller — it decides whether to print it.
+    Ok((status, captured_stderr))
 }
 
 // ── Bundled Cargo bootstrap ───────────────────────────────────────────────────
@@ -552,81 +582,82 @@ fn cocotte_toolchain_dir() -> PathBuf {
 
 /// Returns the path to a `cargo` binary, bootstrapping one if needed.
 /// Returns None only if the download/install fails.
+/// Ensure a working cargo binary exists in ~/.cocotte/toolchain/.
+/// NEVER returns the system PATH cargo — that's the caller's job.
+/// This function only manages the private bundled toolchain.
 fn ensure_bundled_cargo(verbose: bool) -> Option<PathBuf> {
-    // 1. Check PATH first — if cargo is already available, use it directly.
-    if let Ok(p) = which_cargo() {
-        return Some(p);
-    }
-
     let toolchain_dir = cocotte_toolchain_dir();
     let cargo_home    = toolchain_dir.join("cargo");
     let cargo_bin     = cargo_home.join("bin").join(if cfg!(windows) { "cargo.exe" } else { "cargo" });
 
-    // 2. Already bootstrapped?
+    // Already bootstrapped and the binary is a real executable (not a rustup shim).
+    // We check it isn't a rustup shim by verifying it lives inside our own dir.
     if cargo_bin.exists() {
         return Some(cargo_bin);
     }
 
-    // 3. Need to bootstrap — download rustup-init and run it.
-    step("Bootstrap", "cargo not found — installing bundled Rust toolchain");
+    // Need to bootstrap — download rustup-init and run it isolated from the
+    // system rustup so it installs a real toolchain, not another shim.
+    step("Bootstrap", "installing bundled Rust toolchain into ~/.cocotte/toolchain");
     substep("this only happens once; subsequent builds will be fast");
-    substep(&format!("toolchain location: {}", toolchain_dir.display()));
 
     if let Err(e) = fs::create_dir_all(&toolchain_dir) {
         step_err("Error", &format!("cannot create toolchain dir: {}", e));
         return None;
     }
 
-    // Download rustup-init for the current platform.
-    let rustup_init_url = rustup_init_url();
     let rustup_init_path = toolchain_dir.join(if cfg!(windows) { "rustup-init.exe" } else { "rustup-init" });
 
     step("Downloading", "rustup-init");
-    if verbose { substep(&format!("url: {}", rustup_init_url)); }
+    if verbose { substep(&format!("url: {}", rustup_init_url())); }
 
-    if let Err(e) = download_file(rustup_init_url, &rustup_init_path) {
+    if let Err(e) = download_file(rustup_init_url(), &rustup_init_path) {
         step_err("Error", &format!("download failed: {}", e));
         substep("check your internet connection or install Rust manually from https://rustup.rs");
         return None;
     }
 
-    // Make executable on Unix.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(&rustup_init_path, fs::Permissions::from_mode(0o755));
     }
 
-    // Run rustup-init in non-interactive mode.
-    step("Installing", "Rust toolchain (stable)");
+    step("Installing", "Rust stable toolchain (minimal profile)");
     substep("this may take a few minutes on first run…");
 
     let rustup_home = toolchain_dir.join("rustup");
+
+    // Critical: set both CARGO_HOME and RUSTUP_HOME to our private dir,
+    // and also set RUSTUP_HOME on the child so rustup-init doesn't touch
+    // the system ~/.rustup at all.
     let status = std::process::Command::new(&rustup_init_path)
         .args([
             "--no-modify-path",
             "--default-toolchain", "stable",
-            "--profile", "minimal",   // only rustc + cargo, no docs/extras
+            "--profile", "minimal",
             "-y",
         ])
         .env("CARGO_HOME",  &cargo_home)
         .env("RUSTUP_HOME", &rustup_home)
+        // Remove the system RUSTUP_TOOLCHAIN override if any — it would cause
+        // our freshly installed toolchain to be ignored.
+        .env_remove("RUSTUP_TOOLCHAIN")
         .stdout(if verbose { std::process::Stdio::inherit() } else { std::process::Stdio::null() })
         .stderr(if verbose { std::process::Stdio::inherit() } else { std::process::Stdio::null() })
         .status();
 
     match status {
+        Ok(s) if s.success() && cargo_bin.exists() => {
+            step("Ready", &format!("bundled toolchain installed at {}", cargo_bin.display()));
+            Some(cargo_bin)
+        }
         Ok(s) if s.success() => {
-            if cargo_bin.exists() {
-                step("Ready", "bundled Rust toolchain installed");
-                Some(cargo_bin)
-            } else {
-                step_err("Error", "rustup-init succeeded but cargo binary not found");
-                None
-            }
+            step_err("Error", "rustup-init succeeded but cargo binary not found — check disk space");
+            None
         }
         Ok(s) => {
-            step_err("Error", &format!("rustup-init exited with status {}", s));
+            step_err("Error", &format!("rustup-init exited {}", s));
             None
         }
         Err(e) => {
