@@ -1090,9 +1090,29 @@ fn make_uuid_module() -> Value {
 
 fn getrandom_bytes(buf: &mut [u8]) -> Result<()> {
     use std::io::Read;
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(buf))
-        .map_err(|e| CocotteError::runtime(&format!("uuid: cannot read /dev/urandom: {}", e)))
+    // Try /dev/urandom first (Linux/macOS)
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        return f.read_exact(buf)
+            .map_err(|e| CocotteError::runtime(&format!("uuid: read /dev/urandom failed: {}", e)));
+    }
+    // Windows / other: xorshift64 seeded from system time + PID + stack address.
+    // Not cryptographically strong but fine for UUID v4 uniqueness.
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    let pid  = std::process::id() as u64;
+    let addr = buf.as_ptr() as u64;   // stack address adds more entropy
+    let mut seed = t ^ pid.wrapping_mul(0x9e3779b97f4a7c15) ^ addr.wrapping_mul(0x6c62272e07bb0142);
+    if seed == 0 { seed = 0xdeadbeefcafebabe; }
+    for b in buf.iter_mut() {
+        // xorshift64
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        *b = (seed & 0xff) as u8;
+    }
+    Ok(())
 }
 
 fn is_valid_uuid(s: &str) -> bool {

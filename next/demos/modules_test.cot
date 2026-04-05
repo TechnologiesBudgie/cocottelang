@@ -1,0 +1,130 @@
+# modules_test.cot — test vectors for new modules in 0.1.2/0.1.3
+# Run with: cocotte test
+
+module add "crypto"
+module add "base64"
+module add "uuid"
+module add "path"
+module add "env"
+module add "csv"
+
+# ── crypto.sha256 ─────────────────────────────────────────────────────────────
+# Known vectors from NIST FIPS 180-4
+
+assert_eq(
+    crypto.sha256(""),
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+)
+assert_eq(
+    crypto.sha256("abc"),
+    "ba7816bf8f01cfea414140de5dae2ec73b00361bbef0469348423f656b022315"
+)
+assert_eq(
+    crypto.sha256("The quick brown fox jumps over the lazy dog"),
+    "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592"
+)
+
+# ── crypto.md5 ────────────────────────────────────────────────────────────────
+# RFC 1321 test vectors
+
+assert_eq(crypto.md5(""),  "d41d8cd98f00b204e9800998ecf8427e")
+assert_eq(crypto.md5("a"), "0cc175b9c0f1b6a831c399e269772661")
+assert_eq(crypto.md5("abc"), "900150983cd24fb0d6963f7d28e17f72")
+assert_eq(crypto.md5("message digest"), "f96b697d7cb7938d525a2f31aaf161d0")
+assert_eq(crypto.md5("hello world"), "5eb63bbbe01eeed093cb22bb8f5acdc3")
+
+# ── base64 ────────────────────────────────────────────────────────────────────
+# RFC 4648 test vectors
+
+assert_eq(base64.encode(""),       "")
+assert_eq(base64.encode("f"),      "Zg==")
+assert_eq(base64.encode("fo"),     "Zm8=")
+assert_eq(base64.encode("foo"),    "Zm9v")
+assert_eq(base64.encode("foobar"), "Zm9vYmFy")
+assert_eq(base64.encode("Hello, Cocotte!"), "SGVsbG8sIENvY290dGUh")
+
+assert_eq(base64.decode("Zg=="),     "f")
+assert_eq(base64.decode("Zm8="),     "fo")
+assert_eq(base64.decode("Zm9v"),     "foo")
+assert_eq(base64.decode("Zm9vYmFy"), "foobar")
+assert_eq(base64.decode("SGVsbG8sIENvY290dGUh"), "Hello, Cocotte!")
+
+# Roundtrip
+var msg = "The quick brown fox jumps over the lazy dog"
+assert_eq(base64.decode(base64.encode(msg)), msg)
+
+# ── uuid ──────────────────────────────────────────────────────────────────────
+
+var id = uuid.v4()
+assert(uuid.is_valid(id), "uuid.v4() should produce a valid UUID")
+assert(id.len() == 36, "UUID should be 36 characters")
+assert(id.get(8) == "-", "UUID dash at position 8")
+assert(id.get(13) == "-", "UUID dash at position 13")
+assert(id.get(18) == "-", "UUID dash at position 18")
+assert(id.get(23) == "-", "UUID dash at position 23")
+
+# Version bits: character at index 14 must be '4'
+assert(id.get(14) == "4", "UUID v4 version nibble must be 4")
+
+assert(not uuid.is_valid("not-a-uuid"), "invalid UUID should fail")
+assert(not uuid.is_valid(""), "empty string should fail")
+assert(not uuid.is_valid("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"), "non-hex should fail")
+
+# ── path ──────────────────────────────────────────────────────────────────────
+
+assert_eq(path.basename("/home/user/file.txt"), "file.txt")
+assert_eq(path.basename("/home/user/"), "user")
+assert_eq(path.dirname("/home/user/file.txt"), "/home/user")
+assert_eq(path.ext("/home/user/file.txt"), ".txt")
+assert_eq(path.ext("/home/user/file"), "")
+assert_eq(path.stem("/home/user/file.txt"), "file")
+assert_eq(path.is_abs("/home/user"), true)
+assert_eq(path.is_abs("relative/path"), false)
+assert(path.exists("/tmp"), "tmp dir should exist")
+
+var joined = path.join("home", "user", "docs")
+assert(joined.contains("home"), "joined path should contain 'home'")
+assert(joined.contains("docs"), "joined path should contain 'docs'")
+
+# ── env ───────────────────────────────────────────────────────────────────────
+
+env.set("COCOTTE_TEST_VAR", "hello123")
+assert_eq(env.get("COCOTTE_TEST_VAR"), "hello123")
+assert_eq(env.get_or("COCOTTE_TEST_VAR", "default"), "hello123")
+assert_eq(env.get_or("COCOTTE_MISSING_VAR_XYZ", "fallback"), "fallback")
+assert(env.get("COCOTTE_MISSING_VAR_XYZ") == nil, "missing var should be nil")
+env.remove("COCOTTE_TEST_VAR")
+assert(env.get("COCOTTE_TEST_VAR") == nil, "removed var should be nil")
+
+var all_env = env.all()
+assert(all_env.len() > 0, "env.all() should return at least one variable")
+
+# ── csv ───────────────────────────────────────────────────────────────────────
+
+var simple = "alice,30,engineer\nbob,25,designer\n"
+var rows = csv.parse(simple)
+assert_eq(rows.len(), 2)
+assert_eq(rows.get(0).get(0), "alice")
+assert_eq(rows.get(0).get(1), "30")
+assert_eq(rows.get(1).get(2), "designer")
+
+var with_headers = "name,age,role\nalice,30,engineer\nbob,25,designer\n"
+var records = csv.parse_with_headers(with_headers)
+assert_eq(records.len(), 2)
+assert_eq(records.get(0).get("name"), "alice")
+assert_eq(records.get(1).get("role"), "designer")
+
+# Quoted fields
+var quoted = "\"hello, world\",42\n\"she said \"\"hi\"\"\",99\n"
+var qrows = csv.parse(quoted)
+assert_eq(qrows.get(0).get(0), "hello, world")
+assert_eq(qrows.get(1).get(0), "she said \"hi\"")
+
+# Roundtrip stringify → parse
+var data = [["name", "score"], ["Alice", "95"], ["Bob", "87"]]
+var csv_text = csv.stringify(data)
+var reparsed = csv.parse(csv_text)
+assert_eq(reparsed.get(0).get(0), "name")
+assert_eq(reparsed.get(1).get(1), "95")
+
+print "All module tests passed!"
