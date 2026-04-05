@@ -37,7 +37,7 @@ Cocotte is a compiled and interpreted programming language with English-like syn
 ### Linux (any architecture)
 
 ```sh
-curl -fsSL https://cocotte-lang.pages.dev/install.sh | sh
+curl -fsSL https://cocotte-lang.pages.dev/install.sh | sudo bash
 ```
 
 Detects your architecture (`x86_64`, `aarch64`, `armv7`, `i686`, `riscv64`) and installs to `/usr/local/bin/cocotte`.
