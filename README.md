@@ -1,7 +1,9 @@
 # Cocotte
 
 Cocotte is a beginner-friendly, powerful programming language designed to actually be easy, while staying as powerful as Rust, Python or C++.
-
+  
+*This software comes with ABSOLUTELY NO WARRANTY, to the extent permitted by applicable law.*
+  
 ## Install
 
 ```bash
